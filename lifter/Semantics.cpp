@@ -41,58 +41,64 @@ FunctionType* parseArgsType(funcsignatures::functioninfo* funcInfo,
                                  false);
 }
 
-vector<Value*> parseArgs(funcsignatures::functioninfo* funcInfo,
-                         IRBuilder<>& builder) {
+vector<Value*> parseArgs(funcsignatures::functioninfo* funcInfo, IRBuilder<>& builder) {
   auto& context = builder.getContext();
 
   auto RspRegister = GetRegisterValue(builder, ZYDIS_REGISTER_RSP);
   if (!funcInfo)
     return {
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RAX),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RCX),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RDX),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RBX),
-                         Type::getInt64Ty(context)),
+        // General purpose registers
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RAX), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RCX), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RDX), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RBX), Type::getInt64Ty(context)),
         RspRegister,
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RBP),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RSI),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RDI),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RDI),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R8),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R9),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R10),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R11),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R12),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R13),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R14),
-                         Type::getInt64Ty(context)),
-        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R15),
-                         Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RBP), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RSI), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_RDI), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R8),  Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R9),  Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R10), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R11), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R12), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R13), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R14), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(builder, ZYDIS_REGISTER_R15), Type::getInt64Ty(context)),
+        // XMM registers
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM0),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM1),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM2),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM3),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM4),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM5),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM6),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM7),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM8),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM9),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM10),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM11),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM12),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM13),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM14),
+        GetRegisterValue(builder, ZYDIS_REGISTER_XMM15),
+        // Memory
         getMemory()};
 
   std::vector<Value*> args;
   for (const auto& arg : funcInfo->args) {
     Value* argValue = GetRegisterValue(builder, arg.reg);
-    argValue = createZExtOrTruncFolder(
-        builder, argValue,
-        Type::getIntNTy(context, 8 << (arg.argtype.size - 1)));
-    if (arg.argtype.isPtr)
-      argValue = ConvertIntToPTR(builder, argValue);
-    //  now convert to pointer if its a pointer
-    args.push_back(argValue);
+
+    // Handle XMM registers differently
+    if (ZYDIS_REGISTER_IS_XMM(arg.reg)) {
+      // XMM registers are already 128-bit, so we don't need to extend or
+      // truncate
+      args.push_back(argValue);
+    } else {
+      argValue = createZExtOrTruncFolder(builder, argValue, Type::getIntNTy(context, 8 << (arg.argtype.size - 1)));
+      if (arg.argtype.isPtr)
+        argValue = ConvertIntToPTR(builder, argValue);
+      args.push_back(argValue);
+    }
   }
   return args;
 }
@@ -230,10 +236,7 @@ Value* computeSignFlag(IRBuilder<>& builder, Value* value) { // x < 0 = sf
 // this function is used for jumps that are related to user, ex: vms using
 // different handlers, jmptables, etc.
 
-void branchHelper(IRBuilder<>& builder,
-                  ZydisDisassembledInstruction& instruction,
-                  shared_ptr<vector<BBInfo>> blockAddresses, Value* condition,
-                  string instname, int numbered) {
+void branchHelper(IRBuilder<>& builder, ZydisDisassembledInstruction& instruction, shared_ptr<vector<BBInfo>> blockAddresses, Value* condition, string instname, int numbered) {
   LLVMContext& context = builder.getContext();
   // TODO:
   // save the current state of memory, registers etc.,
@@ -245,18 +248,32 @@ void branchHelper(IRBuilder<>& builder,
   auto function = block->getParent();
 
   auto dest = instruction.operands[0];
-  Value* true_jump = ConstantInt::get(
-      function->getReturnType(),
-      dest.imm.value.s + instruction.runtime_address + instruction.info.length);
-  Value* false_jump =
-      ConstantInt::get(function->getReturnType(),
-                       instruction.runtime_address + instruction.info.length);
-  Value* next_jump =
-      createSelectFolder(builder, condition, true_jump, false_jump);
+  Value* true_jump = ConstantInt::get(function->getReturnType(),  dest.imm.value.s + instruction.runtime_address + instruction.info.length);
+  Value* false_jump = ConstantInt::get(function->getReturnType(), instruction.runtime_address + instruction.info.length);
+  Value* next_jump =  createSelectFolder(builder, condition, true_jump, false_jump);
   auto lastinst = builder.CreateRet(next_jump);
 
-  uint64_t destination = 0;
-  PATH_info pathInfo = solvePath(function, destination, next_jump);
+  uintptr_t destination = 0;
+
+  PATH_info pathInfo;
+  // Controlla se l'indirizzo corrente è nella tabella dei
+  // predicati opachi
+  auto it = std::find_if(opaquePredicates.begin(), opaquePredicates.end(),
+                         [&instruction](const OpaquePredicateEntry& entry) {
+                           return entry.address == instruction.runtime_address;
+                         });
+
+  if (it != opaquePredicates.end()) {
+    // Se troviamo un predicato opaco, usiamo la nuova destinazione
+    pathInfo = PATH_solved;
+    destination = it->jmpAddress;
+    printvalueforce2(instruction.runtime_address);
+    outs() << "Opaque Predicate replaced!\n";
+    outs().flush();
+  } else {
+    // Altrimenti, proseguiamo normalmente
+    pathInfo = solvePath(function, destination, next_jump);
+  }
 
   ValueToValueMapTy VMap_test;
 
@@ -797,8 +814,7 @@ namespace branches {
   }
 
   int ret_count = 0;
-  void lift_ret(IRBuilder<>& builder, ZydisDisassembledInstruction& instruction,
-                shared_ptr<vector<BBInfo>> blockAddresses, bool& run) {
+  void lift_ret(IRBuilder<>& builder, ZydisDisassembledInstruction& instruction, shared_ptr<vector<BBInfo>> blockAddresses, bool& run) {
     LLVMContext& context = builder.getContext();
     // [0] = rip
     // [1] = rsp
@@ -871,7 +887,25 @@ namespace branches {
       return;
     }
 
-    PATH_info pathInfo = solvePath(function, destination, realval);
+    auto it = std::find_if(returnTable.begin(), returnTable.end(),
+                           [&instruction](const RetItem& item) {
+                             return item.Address == instruction.runtime_address;
+                           });
+
+    PATH_info pathInfo;
+    if (it != returnTable.end()) {
+      // Abbiamo trovato una corrispondenza
+      destination = it->RetAddress;
+      pathInfo = PATH_solved;
+      printvalue2(destination);
+      // printvalue2("Found in returnTable");
+      returnTable.erase(it);
+    } else {
+      // Se non troviamo una corrispondenza, procediamo con solvePath
+      pathInfo = solvePath(function, destination, realval);
+    }
+
+    //PATH_info pathInfo = solvePath(function, destination, realval);
 
     block->setName("previousret_block");
 
@@ -1376,68 +1410,68 @@ namespace arithmeticsAndLogical {
 
   void lift_rcl(IRBuilder<>& builder, ZydisDisassembledInstruction& instruction) {
     LLVMContext& context = builder.getContext();
-	auto dest = instruction.operands[0];
-	auto count = instruction.operands[1];
+    auto dest = instruction.operands[0];
+    auto count = instruction.operands[1];
 
-	Value* Lvalue     = GetOperandValue(builder, dest, dest.size);
-	Value* countValue = GetOperandValue(builder, count, dest.size);
-	Value* carryFlag  = getFlag(builder, FLAG_CF);
+    Value* Lvalue = GetOperandValue(builder, dest, dest.size);
+    Value* countValue = GetOperandValue(builder, count, dest.size);
+    Value* carryFlag = getFlag(builder, FLAG_CF);
 
-	unsigned long bitWidth = Lvalue->getType()->getIntegerBitWidth();
-	unsigned maskC         = bitWidth == 64 ? 0x3f : 0x1f;
+    unsigned long bitWidth = Lvalue->getType()->getIntegerBitWidth();
+    unsigned maskC = bitWidth == 64 ? 0x3f : 0x1f;
 
-	// Calculate actual count
-	Value* countMask   = ConstantInt::get(countValue->getType(), maskC);
-	Value* actualCount = createAndFolder(builder, countValue, countMask, "actualCount");
+    // Calculate actual count
+    Value* countMask = ConstantInt::get(countValue->getType(), maskC);
+    Value* actualCount = createAndFolder(builder, countValue, countMask, "actualCount");
 
-	// Extend Lvalue to double width
-	Type* wideType    = Type::getIntNTy(context, dest.size * 2);
-	Value* wideLvalue = createZExtFolder(builder, Lvalue, wideType);
+    // Extend Lvalue to double width
+    Type* wideType = Type::getIntNTy(context, dest.size * 2);
+    Value* wideLvalue = createZExtFolder(builder, Lvalue, wideType);
 
-	// Shift the carry flag into the LSB
-	Value* cf_extended = createZExtFolder(builder, carryFlag, wideType);
-	Value* shiftedInCF = createOrFolder(builder, wideLvalue, cf_extended, "shiftedincf");
+    // Shift the carry flag into the LSB
+    Value* cf_extended = createZExtFolder(builder, carryFlag, wideType);
+    Value* shiftedInCF = createOrFolder(builder, wideLvalue, cf_extended, "shiftedincf");
 
-	// Perform the rotation
-	Value* shiftAmount        = createZExtFolder(builder, actualCount, wideType);
-	Value* bitWidthPlusOne    = ConstantInt::get(wideType, bitWidth + 1);
-	Value* inverseShiftAmount = createSubFolder(builder, bitWidthPlusOne, shiftAmount);
+    // Perform the rotation
+    Value* shiftAmount = createZExtFolder(builder, actualCount, wideType);
+    Value* bitWidthPlusOne = ConstantInt::get(wideType, bitWidth + 1);
+    Value* inverseShiftAmount = createSubFolder(builder, bitWidthPlusOne, shiftAmount);
 
-	Value* leftShifted  = createShlFolder(builder, shiftedInCF,  shiftAmount, "leftshifted");
-	Value* rightShifted = createLShrFolder(builder, shiftedInCF, inverseShiftAmount, "rightshifted");
-	Value* rotated      = createOrFolder(builder, leftShifted, rightShifted);
+    Value* leftShifted = createShlFolder(builder, shiftedInCF, shiftAmount, "leftshifted");
+    Value* rightShifted = createLShrFolder(builder, shiftedInCF, inverseShiftAmount, "rightshifted");
+    Value* rotated = createOrFolder(builder, leftShifted, rightShifted);
 
-	// Extract the result and new carry flag
-	Value* result       = createTruncFolder(builder, rotated, Lvalue->getType());
-	Value* newCFShifted = createLShrFolder(builder, rotated, ConstantInt::get(wideType, bitWidth));
-	Value* newCF        = createTruncFolder(builder, newCFShifted, Type::getInt1Ty(context), "rclnewcf");
+    // Extract the result and new carry flag
+    Value* result = createTruncFolder(builder, rotated, Lvalue->getType());
+    Value* newCFShifted = createLShrFolder(builder, rotated, ConstantInt::get(wideType, bitWidth));
+    Value* newCF = createTruncFolder(builder, newCFShifted, Type::getInt1Ty(context), "rclnewcf");
 
-	// Calculate OF (only valid when count == 1)
-	Value* resultMSB      = createLShrFolder(builder, result, ConstantInt::get(result->getType(), bitWidth - 1));
-	Value* msbAfterRotate = createTruncFolder(builder, resultMSB, Type::getInt1Ty(context), "rclmsbafterrotate");
+    // Calculate OF (only valid when count == 1)
+    Value* resultMSB = createLShrFolder(builder, result, ConstantInt::get(result->getType(), bitWidth - 1));
+    Value* msbAfterRotate = createTruncFolder(builder, resultMSB, Type::getInt1Ty(context), "rclmsbafterrotate");
 
-	Value* one        = ConstantInt::get(actualCount->getType(), 1);
-	Value* isCountOne = createICMPFolder(builder, CmpInst::ICMP_EQ, actualCount, one);
+    Value* one = ConstantInt::get(actualCount->getType(), 1);
+    Value* isCountOne = createICMPFolder(builder, CmpInst::ICMP_EQ, actualCount, one);
 
-	Value* newOF     = createXorFolder(builder, newCF, msbAfterRotate);
-	Value* currentOF = getFlag(builder, FLAG_OF);
-	newOF            = createSelectFolder(builder, isCountOne, newOF, currentOF);
+    Value* newOF = createXorFolder(builder, newCF, msbAfterRotate);
+    Value* currentOF = getFlag(builder, FLAG_OF);
+    newOF = createSelectFolder(builder, isCountOne, newOF, currentOF);
 
-	// Set the result and flags
-	SetOperandValue(builder, dest, result);
-	setFlag(builder, FLAG_CF, newCF);
-	setFlag(builder, FLAG_OF, newOF);
+    // Set the result and flags
+    SetOperandValue(builder, dest, result);
+    setFlag(builder, FLAG_CF, newCF);
+    setFlag(builder, FLAG_OF, newOF);
 
-	// Debug output
-	printvalue(Lvalue);
-	printvalue(countValue);
-	printvalue(carryFlag);
-	printvalue(actualCount);
-	printvalue(shiftedInCF);
-	printvalue(rotated);
-	printvalue(result);
-	printvalue(newCF);
-	printvalue(newOF);
+    // Debug output
+    printvalue(Lvalue);
+    printvalue(countValue);
+    printvalue(carryFlag);
+    printvalue(actualCount);
+    printvalue(shiftedInCF);
+    printvalue(rotated);
+    printvalue(result);
+    printvalue(newCF);
+    printvalue(newOF);
   }
 
   /*
@@ -1470,73 +1504,74 @@ namespace arithmeticsAndLogical {
   */
   void lift_rcr(IRBuilder<>& builder, ZydisDisassembledInstruction& instruction) {
     LLVMContext& context = builder.getContext();
-	auto dest  = instruction.operands[0];
-	auto count = instruction.operands[1];
+    auto dest = instruction.operands[0];
+    auto count = instruction.operands[1];
 
-	Value* Lvalue     = GetOperandValue(builder, dest, dest.size);
-	Value* countValue = GetOperandValue(builder, count, dest.size);
-	Value* carryFlag  = getFlag(builder, FLAG_CF);
+    Value* Lvalue = GetOperandValue(builder, dest, dest.size);
+    Value* countValue = GetOperandValue(builder, count, dest.size);
+    Value* carryFlag = getFlag(builder, FLAG_CF);
 
-	unsigned long bitWidth = Lvalue->getType()->getIntegerBitWidth();
-	unsigned maskC         = bitWidth == 64 ? 0x3f : 0x1f;
+    unsigned long bitWidth = Lvalue->getType()->getIntegerBitWidth();
+    unsigned maskC = bitWidth == 64 ? 0x3f : 0x1f;
 
-	// Calculate actual count
-	Value* countMask   = ConstantInt::get(countValue->getType(), maskC);
-	Value* actualCount = createAndFolder(builder, countValue, countMask, "actualCount");
+    // Calculate actual count
+    Value* countMask = ConstantInt::get(countValue->getType(), maskC);
+    Value* actualCount = createAndFolder(builder, countValue, countMask, "actualCount");
 
-	// Extend Lvalue to double width and shift left by 1 to make room for CF
-	Type* wideType       = Type::getIntNTy(context, dest.size * 2);
-	Value* wideLvalue    = createZExtFolder(builder, Lvalue, wideType);
-	Value* shiftedLvalue = createShlFolder(builder, wideLvalue, ConstantInt::get(wideType, 1));
+    // Extend Lvalue to double width and shift left by 1 to make room for CF
+    Type* wideType = Type::getIntNTy(context, dest.size * 2);
+    Value* wideLvalue = createZExtFolder(builder, Lvalue, wideType);
+    Value* shiftedLvalue =
+        createShlFolder(builder, wideLvalue, ConstantInt::get(wideType, 1));
 
-	// Insert the carry flag into the MSB
-	Value* cf_extended = createZExtFolder(builder, carryFlag, wideType);
-	Value* shiftedCF   = createShlFolder(builder, cf_extended, ConstantInt::get(wideType, bitWidth));
-	Value* shiftedInCF = createOrFolder(builder, shiftedLvalue, shiftedCF, "shiftedincf");
+    // Insert the carry flag into the MSB
+    Value* cf_extended = createZExtFolder(builder, carryFlag, wideType);
+    Value* shiftedCF = createShlFolder(builder, cf_extended, ConstantInt::get(wideType, bitWidth));
+    Value* shiftedInCF = createOrFolder(builder, shiftedLvalue, shiftedCF, "shiftedincf");
 
-	// Perform the rotation
-	Value* shiftAmount        = createZExtFolder(builder, actualCount, wideType);
-	Value* bitWidthPlusOne    = ConstantInt::get(wideType, bitWidth + 1);
-	Value* inverseShiftAmount = createSubFolder(builder, bitWidthPlusOne, shiftAmount);
+    // Perform the rotation
+    Value* shiftAmount = createZExtFolder(builder, actualCount, wideType);
+    Value* bitWidthPlusOne = ConstantInt::get(wideType, bitWidth + 1);
+    Value* inverseShiftAmount = createSubFolder(builder, bitWidthPlusOne, shiftAmount);
 
-	Value* rightShifted = createLShrFolder(builder, shiftedInCF, shiftAmount, "rightshifted");
-	Value* leftShifted  = createShlFolder(builder, shiftedInCF, inverseShiftAmount, "leftshifted");
-	Value* rotated      = createOrFolder(builder, rightShifted, leftShifted);
+    Value* rightShifted = createLShrFolder(builder, shiftedInCF, shiftAmount, "rightshifted");
+    Value* leftShifted = createShlFolder(builder, shiftedInCF, inverseShiftAmount, "leftshifted");
+    Value* rotated = createOrFolder(builder, rightShifted, leftShifted);
 
-	// Extract the result and new carry flag
-	Value* shiftedResult = createLShrFolder(builder, rotated, ConstantInt::get(wideType, 1));
-	Value* result        = createTruncFolder(builder, shiftedResult, Lvalue->getType());
-	Value* newCF         = createTruncFolder(builder, rotated, Type::getInt1Ty(context), "rcrnewcf");
+    // Extract the result and new carry flag
+    Value* shiftedResult = createLShrFolder(builder, rotated, ConstantInt::get(wideType, 1));
+    Value* result = createTruncFolder(builder, shiftedResult, Lvalue->getType());
+    Value* newCF = createTruncFolder(builder, rotated, Type::getInt1Ty(context), "rcrnewcf");
 
-	// Calculate OF (only valid when count == 1)
-	Value* resultMSB      = createLShrFolder(builder, result, ConstantInt::get(result->getType(), bitWidth - 1));
-	Value* msbAfterRotate = createTruncFolder(builder, resultMSB, Type::getInt1Ty(context), "rcrmsbafterrotate");
+    // Calculate OF (only valid when count == 1)
+    Value* resultMSB = createLShrFolder(builder, result, ConstantInt::get(result->getType(), bitWidth - 1));
+    Value* msbAfterRotate = createTruncFolder(builder, resultMSB, Type::getInt1Ty(context), "rcrmsbafterrotate");
 
-	Value* LvalueMSB       = createLShrFolder(builder, Lvalue, ConstantInt::get(Lvalue->getType(), bitWidth - 1));
-	Value* msbBeforeRotate = createTruncFolder(builder, LvalueMSB, Type::getInt1Ty(context), "rcrmsbbeforerotate");
+    Value* LvalueMSB = createLShrFolder(builder, Lvalue, ConstantInt::get(Lvalue->getType(), bitWidth - 1));
+    Value* msbBeforeRotate = createTruncFolder(builder, LvalueMSB, Type::getInt1Ty(context), "rcrmsbbeforerotate");
 
-	Value* one        = ConstantInt::get(actualCount->getType(), 1);
-	Value* isCountOne = createICMPFolder(builder, CmpInst::ICMP_EQ, actualCount, one);
+    Value* one = ConstantInt::get(actualCount->getType(), 1);
+    Value* isCountOne = createICMPFolder(builder, CmpInst::ICMP_EQ, actualCount, one);
 
-	Value* newOF     = createXorFolder(builder, msbBeforeRotate, msbAfterRotate);
-	Value* currentOF = getFlag(builder, FLAG_OF);
-	newOF            = createSelectFolder(builder, isCountOne, newOF, currentOF);
+    Value* newOF = createXorFolder(builder, msbBeforeRotate, msbAfterRotate);
+    Value* currentOF = getFlag(builder, FLAG_OF);
+    newOF = createSelectFolder(builder, isCountOne, newOF, currentOF);
 
-	// Set the result and flags
-	SetOperandValue(builder, dest, result);
-	setFlag(builder, FLAG_CF, newCF);
-	setFlag(builder, FLAG_OF, newOF);
+    // Set the result and flags
+    SetOperandValue(builder, dest, result);
+    setFlag(builder, FLAG_CF, newCF);
+    setFlag(builder, FLAG_OF, newOF);
 
-	// Debug output
-	printvalue(Lvalue);
-	printvalue(countValue);
-	printvalue(carryFlag);
-	printvalue(actualCount);
-	printvalue(shiftedInCF);
-	printvalue(rotated);
-	printvalue(result);
-	printvalue(newCF);
-	printvalue(newOF);
+    // Debug output
+    printvalue(Lvalue);
+    printvalue(countValue);
+    printvalue(carryFlag);
+    printvalue(actualCount);
+    printvalue(shiftedInCF);
+    printvalue(rotated);
+    printvalue(result);
+    printvalue(newCF);
+    printvalue(newOF);
   }
 
   void lift_not(IRBuilder<>& builder,

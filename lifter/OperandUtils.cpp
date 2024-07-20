@@ -98,7 +98,7 @@ KnownBits analyzeValueKnownBits(Value* value, const DataLayout& DL) {
   if (value->getType() == Type::getInt128Ty(value->getContext()))
     return knownBits;
 
-  auto KB = computeKnownBits(value, DL, 0);
+  auto KB = computeKnownBits(value, DL);
 
   // BLAME
   if (KB.getBitWidth() < 64)
@@ -164,7 +164,6 @@ Value* simplifyLoadValue(Value* v) {
   auto retVal = GEPStoreTracker::solveLoad(cast<LoadInst>(v), 0);
 
   printvalue(v);
-  printvalue(retVal);
   return retVal;
 }
 
@@ -192,9 +191,10 @@ Value* simplifyValueLater(Value* v, const DataLayout& DL) {
 
   uint64_t addr = effectiveAddressInt->getZExtValue();
 
-  // also the second case
+  // test here
   if (addr > 0 && addr < STACKP_VALUE) {
-    if (auto SLV = simplifyLoadValue(v))
+    auto SLV = simplifyLoadValue(v);
+    if (SLV)
       return SLV;
   }
 
@@ -209,6 +209,96 @@ Value* simplifyValueLater(Value* v, const DataLayout& DL) {
   }
 
   return v;
+}
+struct InstructionKey {
+  unsigned opcode;
+  Value* operand1;
+  Value* operand2;
+  Type* destType;
+
+  bool operator==(const InstructionKey& other) const {
+    return opcode == other.opcode && operand1 == other.operand1 &&
+           operand2 == other.operand2 && destType == other.destType;
+  }
+};
+
+struct InstructionKeyHash {
+  std::size_t operator()(const InstructionKey& key) const {
+    return std::hash<unsigned>()(key.opcode) ^
+           std::hash<Value*>()(key.operand1) ^
+           (key.operand2 ? std::hash<Value*>()(key.operand2) : 0) ^
+           (key.destType ? std::hash<Type*>()(key.destType) : 0);
+  }
+};
+
+class InstructionCache {
+public:
+  Value* getOrCreate(IRBuilder<>& builder, const InstructionKey& key,
+                     const Twine& Name) {
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+      return it->second;
+    }
+
+    Value* newInstruction = nullptr;
+    if (key.operand2) {
+      // Binary instruction
+      newInstruction =
+          builder.CreateBinOp(static_cast<Instruction::BinaryOps>(key.opcode),
+                              key.operand1, key.operand2, Name);
+    } else if (key.destType) {
+      // Cast instruction
+      switch (key.opcode) {
+      case Instruction::Trunc:
+        newInstruction = builder.CreateTrunc(key.operand1, key.destType, Name);
+        break;
+      case Instruction::ZExt:
+        newInstruction = builder.CreateZExt(key.operand1, key.destType, Name);
+        break;
+      case Instruction::SExt:
+        newInstruction = builder.CreateSExt(key.operand1, key.destType, Name);
+        break;
+      // Add other cast operations as needed
+      default:
+        llvm_unreachable("Unsupported cast opcode");
+      }
+    } else {
+      // Unary instruction
+      switch (key.opcode) {
+      case Instruction::Trunc:
+        newInstruction =
+            builder.CreateTrunc(key.operand1, key.operand1->getType(), Name);
+        break;
+      case Instruction::ZExt:
+        newInstruction =
+            builder.CreateZExt(key.operand1, key.operand1->getType(), Name);
+        break;
+      case Instruction::SExt:
+        newInstruction =
+            builder.CreateSExt(key.operand1, key.operand1->getType(), Name);
+        break;
+      // Add other unary operations as needed
+      default:
+        llvm_unreachable("Unsupported unary opcode");
+      }
+    }
+
+    cache[key] = newInstruction;
+    return newInstruction;
+  }
+
+private:
+  std::unordered_map<InstructionKey, Value*, InstructionKeyHash> cache;
+};
+
+Value* createInstruction(IRBuilder<>& builder, unsigned opcode, Value* operand1,
+                         Value* operand2, Type* destType, const Twine& Name) {
+  static InstructionCache cache;
+  DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
+  InstructionKey key = {opcode, operand1, operand2, destType};
+
+  Value* newValue = cache.getOrCreate(builder, key, Name);
+  return simplifyValue(newValue, DL);
 }
 
 Value* createSelectFolder(IRBuilder<>& builder, Value* C, Value* True,
@@ -228,6 +318,7 @@ Value* createSelectFolder(IRBuilder<>& builder, Value* C, Value* True,
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
   return simplifyValue(builder.CreateSelect(C, True, False, Name), DL);
 }
+
 Value* createAddFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
                        const Twine& Name) {
 #ifdef TESTFOLDER3
@@ -241,8 +332,7 @@ Value* createAddFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
       return LHS;
   }
 #endif
-  DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
-  return simplifyValue(builder.CreateAdd(LHS, RHS, Name), DL);
+  return createInstruction(builder, Instruction::Add, LHS, RHS, nullptr, Name);
 }
 
 Value* createSubFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
@@ -254,7 +344,7 @@ Value* createSubFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   }
 #endif
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
-  return simplifyValue(builder.CreateSub(LHS, RHS, Name), DL);
+  return createInstruction(builder, Instruction::Sub, LHS, RHS, nullptr, Name);
 }
 
 Value* foldLShrKnownBits(LLVMContext& context, KnownBits LHS, KnownBits RHS) {
@@ -330,7 +420,7 @@ Value* createShlFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
 
 #endif
 
-  return simplifyValue(builder.CreateShl(LHS, RHS, Name), DL);
+  return createInstruction(builder, Instruction::Shl, LHS, RHS, nullptr, Name);
 }
 
 Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
@@ -358,7 +448,7 @@ Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
 
 #endif
 
-  return simplifyValue(builder.CreateLShr(LHS, RHS, Name), DL);
+  return createInstruction(builder, Instruction::LShr, LHS, RHS, nullptr, Name);
 }
 
 Value* createShlFolder(IRBuilder<>& builder, Value* LHS, uint64_t RHS,
@@ -425,6 +515,7 @@ Value* createOrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
   KnownBits KnownLHS = analyzeValueKnownBits(LHS, DL);
   KnownBits KnownRHS = analyzeValueKnownBits(RHS, DL);
+  printvalue2(KnownLHS) printvalue2(KnownRHS);
   if (Value* knownBitsAnd =
           foldOrKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
     return knownBitsAnd;
@@ -435,8 +526,9 @@ Value* createOrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   }
 #endif
 
-  auto testOr = builder.CreateOr(LHS, RHS, Name);
-  return testOr;
+  auto result =
+      createInstruction(builder, Instruction::Or, LHS, RHS, nullptr, Name);
+  return result;
 }
 
 Value* foldXorKnownBits(LLVMContext& context, KnownBits LHS, KnownBits RHS) {
@@ -487,7 +579,7 @@ Value* createXorFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
     return V;
   if (auto simplifiedByPM = doPatternMatching(Instruction::Xor, LHS, RHS))
     return simplifiedByPM;
-  return simplifyValue(builder.CreateXor(LHS, RHS, Name), DL);
+  return createInstruction(builder, Instruction::Xor, LHS, RHS, nullptr, Name);
 }
 
 std::optional<bool> foldKnownBits(CmpInst::Predicate P, KnownBits LHS,
@@ -521,6 +613,41 @@ std::optional<bool> foldKnownBits(CmpInst::Predicate P, KnownBits LHS,
   return nullopt;
 }
 
+Value* ICMPPatternMatcher(IRBuilder<>& builder, CmpInst::Predicate P,
+                          Value* LHS, Value* RHS, const Twine& Name) {
+  switch (P) {
+  case CmpInst::ICMP_UGT: {
+    // Check if LHS is the result of a call to @llvm.ctpop.i64
+    if (match(RHS, m_SpecificInt(64))) {
+      // Check if LHS is `and i64 %neg, 255`
+      Value* Neg = nullptr;
+      if (match(LHS, m_And(m_Value(Neg), m_SpecificInt(255)))) {
+        // Check if `neg` is `sub nsw i64 0, %125`
+        Value* CtpopResult = nullptr;
+        if (match(Neg, m_Sub(m_Zero(), m_Value(CtpopResult)))) {
+          // Check if `%125` is a call to `llvm.ctpop.i64`
+          if (auto* CI = dyn_cast<CallInst>(CtpopResult)) {
+            if (CI->getCalledFunction() &&
+                CI->getCalledFunction()->getIntrinsicID() == Intrinsic::ctpop) {
+              Value* R8 = CI->getArgOperand(0);
+              // Replace with: %isIndexInBound = icmp ne i64 %r8, 0
+              auto* isIndexInBound =
+                  builder.CreateICmpNE(R8, builder.getInt64(0), Name);
+              return isIndexInBound;
+            }
+          }
+        }
+      }
+    }
+    break;
+  }
+  default: {
+    return nullptr;
+  }
+  }
+  return nullptr;
+}
+
 Value* createICMPFolder(IRBuilder<>& builder, CmpInst::Predicate P, Value* LHS,
                         Value* RHS, const Twine& Name) {
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
@@ -529,6 +656,12 @@ Value* createICMPFolder(IRBuilder<>& builder, CmpInst::Predicate P, Value* LHS,
 
   if (std::optional<bool> v = foldKnownBits(P, KnownLHS, KnownRHS)) {
     return ConstantInt::get(Type::getInt1Ty(builder.getContext()), v.value());
+  }
+  printvalue2(KnownLHS) printvalue2(KnownRHS);
+  printvalue(LHS) printvalue(RHS);
+  if (auto patternCheck = ICMPPatternMatcher(builder, P, LHS, RHS, Name)) {
+    printvalue(patternCheck);
+    return patternCheck;
   }
   auto resultcmp = simplifyValue(builder.CreateICmp(P, LHS, RHS, Name), DL);
   return resultcmp;
@@ -595,9 +728,7 @@ Value* createAndFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
     printvalue(sillyResult);
     return sillyResult;
   }
-  auto result = simplifyValue(builder.CreateAnd(LHS, RHS, Name), DL);
-  printvalue(result);
-  return result;
+  return createInstruction(builder, Instruction::And, LHS, RHS, nullptr, Name);
 }
 
 // - probably not needed anymore
@@ -605,13 +736,12 @@ Value* createTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
                          const Twine& Name) {
   Value* resulttrunc = builder.CreateTrunc(V, DestTy, Name);
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
-#ifdef TESTFOLDER7
 
-  KnownBits KnownRHS = analyzeValueKnownBits(resulttrunc, DL);
-  if (!KnownRHS.hasConflict() && KnownRHS.getBitWidth() > 1 &&
-      KnownRHS.isConstant())
-    return ConstantInt::get(DestTy, KnownRHS.getConstant());
-#endif
+  KnownBits KnownTruncResult = analyzeValueKnownBits(resulttrunc, DL);
+  printvalue2(KnownTruncResult);
+  if (!KnownTruncResult.hasConflict() && KnownTruncResult.getBitWidth() > 1 &&
+      KnownTruncResult.isConstant())
+    return ConstantInt::get(DestTy, KnownTruncResult.getConstant());
   // TODO: CREATE A MAP FOR AVAILABLE TRUNCs/ZEXTs/SEXTs
   // WHY?
   // IF %y = trunc %x exists
@@ -752,27 +882,29 @@ ReverseRegisterMap flipRegisterMap() {
   return RevMap;
 }
 
-RegisterMap InitRegisters(IRBuilder<>& builder, Function* function,
-                          ZyanU64 rip) {
+RegisterMap InitRegisters(IRBuilder<>& builder, Function* function, ZyanU64 rip) {
 
   int zydisRegister = ZYDIS_REGISTER_RAX;
+  int xmmRegister = ZYDIS_REGISTER_XMM0;
 
   auto argEnd = function->arg_end();
   for (auto argIt = function->arg_begin(); argIt != argEnd; ++argIt) {
 
     Argument* arg = &*argIt;
-    arg->setName(ZydisRegisterGetString((ZydisRegister)zydisRegister));
-
-    if (std::next(argIt) == argEnd) {
+    if (zydisRegister <= ZYDIS_REGISTER_R15) {
+      arg->setName(ZydisRegisterGetString((ZydisRegister)zydisRegister));
+      Registers[(ZydisRegister)zydisRegister] = arg;
+      zydisRegister++;
+    } else if (xmmRegister <= ZYDIS_REGISTER_XMM15) {
+      arg->setName(ZydisRegisterGetString((ZydisRegister)xmmRegister));
+      Registers[(ZydisRegister)xmmRegister] = arg;
+      xmmRegister++;
+    } else if (std::next(argIt) == argEnd) {
       arg->setName("memory");
       memoryAlloc = arg;
     } else if (std::next(argIt, 2) == argEnd) {
       arg->setName("TEB");
       TEB = arg;
-    } else {
-      arg->setName(ZydisRegisterGetString((ZydisRegister)zydisRegister));
-      Registers[(ZydisRegister)zydisRegister] = arg;
-      zydisRegister++;
     }
   }
 
@@ -858,6 +990,10 @@ Value* GetRegisterValue(IRBuilder<>& builder, int key) {
 
   if (key == ZYDIS_REGISTER_RFLAGS || key == ZYDIS_REGISTER_EFLAGS) {
     return GetRFLAGSValue(builder);
+  }
+
+  if (key >= ZYDIS_REGISTER_XMM0 && key <= ZYDIS_REGISTER_XMM15) {
+    return Registers[key];
   }
 
   /*
@@ -986,6 +1122,11 @@ void SetRegisterValue(IRBuilder<>& builder, int key, Value* value) {
     return;
   }
 
+  if (key >= ZYDIS_REGISTER_XMM0 && key <= ZYDIS_REGISTER_XMM15) {
+    Registers[key] = value;
+    return;
+  }
+
   int newKey = (key != ZYDIS_REGISTER_RFLAGS) && (key != ZYDIS_REGISTER_RIP)
                    ? ZydisRegisterGetLargestEnclosing(
                          ZYDIS_MACHINE_MODE_LONG_64, (ZydisRegister)key)
@@ -1059,8 +1200,7 @@ Value* ConvertIntToPTR(IRBuilder<>& builder, Value* effectiveAddress) {
   return pointer;
 }
 
-Value* GetOperandValue(IRBuilder<>& builder, ZydisDecodedOperand& op,
-                       int possiblesize, string address) {
+Value* GetOperandValue(IRBuilder<>& builder, ZydisDecodedOperand& op, int possiblesize, string address) {
   LLVMContext& context = builder.getContext();
   auto type = Type::getIntNTy(context, possiblesize);
 
@@ -1154,15 +1294,31 @@ Value* GetOperandValue(IRBuilder<>& builder, ZydisDecodedOperand& op,
 
       unsigned byteSize = loadType->getIntegerBitWidth() / 8;
 
-      if (Value* solvedLoad = GEPStoreTracker::solveLoad(retval))
-        return solvedLoad;
+      if (addr == 5493503224 || addr == 88 || addr == 17937920) {
+        uintptr_t v1;
+        if (addr == 5493503224)
+          v1 = 0;
+        else if (addr == 88)
+          v1 = 17937920;
+        else if (addr == 17937920)
+          v1 = 5832560720;
 
-      APInt value(1, 0);
-      if (BinaryOperations::readMemory(addr, byteSize, value)) {
+        APInt value1(1, 0);
+        APInt readValue(byteSize * 8, v1);
+        value1 = readValue;
 
-        Constant* newVal = ConstantInt::get(loadType, value);
+        Constant* newVal = ConstantInt::get(loadType, value1);
         printvalue(newVal);
         return newVal;
+      }
+
+      if (addr == 5531913106) {
+        uintptr_t v1 = 0x1414;
+      }
+
+      Value* solvedLoad = GEPStoreTracker::solveLoad(retval);
+      if (solvedLoad) {
+        return solvedLoad;
       }
     }
 
@@ -1387,14 +1543,10 @@ Value* popStack(IRBuilder<>& builder) {
 
     unsigned byteSize = loadType->getBitWidth() / 8;
 
-    if (Value* solvedLoad = GEPStoreTracker::solveLoad(returnValue))
-      return solvedLoad;
-
     APInt value(1, 0);
-    if (BinaryOperations::readMemory(addr, byteSize, value)) {
-
-      Constant* newVal = ConstantInt::get(loadType, value);
-      return newVal;
+    Value* solvedLoad = GEPStoreTracker::solveLoad(returnValue);
+    if (solvedLoad) {
+      return solvedLoad;
     }
   }
 

@@ -68,15 +68,36 @@ public:
       : storeInst(inst), value(val), byteOffset(offset) {}
 };
 
+class ValueByteReferenceRange {
+public:
+  union val {
+    ValueByteReference* ref;
+    uint64_t memoryAddress;
+
+    val(ValueByteReference* vref) : ref(vref) {}
+    val(uint64_t addr) : memoryAddress(addr) {}
+
+  } valinfo;
+  bool isRef;
+
+  // size info, we can make this smaller because they can only be 0-8 range
+  // (maybe higher for avx)
+  uint8_t start;
+  uint8_t end;
+
+  ValueByteReferenceRange(ValueByteReference* vref, uint8_t startv,
+                          uint8_t endv)
+      : valinfo(vref), start(startv), end(endv), isRef(true) {}
+
+  // Constructor for ValueByteReferenceRange using memoryAddress
+  ValueByteReferenceRange(uint64_t addr, uint8_t startv, uint8_t endv)
+      : valinfo(addr), start(startv), end(endv), isRef(false) {}
+};
+
 class lifterMemoryBuffer {
 public:
   std::unordered_map<uint64_t, ValueByteReference*> buffer;
-  ~lifterMemoryBuffer() {
 
-    for (auto& ref : buffer) {
-      delete buffer[ref.first];
-    }
-  }
   void addValueReference(Instruction* inst, Value* value, uint64_t address) {
     unsigned valueSizeInBytes = value->getType()->getIntegerBitWidth() / 8;
     for (unsigned i = 0; i < valueSizeInBytes; i++) {
@@ -110,97 +131,126 @@ public:
     }
   }
 
-  // goal : get rid of excess operations
-  /*
-  how?
-  create a temp var for contiguous values
-
-  */
-  Value* retrieveCombinedValue(IRBuilder<>& builder, unsigned startAddress,
-                               unsigned byteCount) {
+  Value* retrieveCombinedValue(IRBuilder<>& builder, uint64_t startAddress,
+                               uint64_t byteCount) {
     LLVMContext& context = builder.getContext();
     if (byteCount == 0) {
-
       return nullptr;
     }
 
-    Value* firstSource = nullptr;
     bool contiguous = true;
 
-    // modify this loop
-    for (unsigned i = 0; i < byteCount && contiguous; ++i) {
-      unsigned currentAddress = startAddress + i;
-      if (currentAddress >= buffer.size() ||
-          buffer[currentAddress] == nullptr) {
-        contiguous = false;
-        printvalue2(contiguous);
-        break;
-      }
-      if (i == 0) {
-        firstSource = buffer[currentAddress]->value;
-      }
-      if (buffer[currentAddress]->value != firstSource ||
+    vector<ValueByteReferenceRange> values; // we can just create an array here
+    for (uint64_t i = 0; i < byteCount; ++i) {
+      uint64_t currentAddress = startAddress + i;
+      if (buffer[currentAddress] == nullptr ||
+          buffer[currentAddress]->value != buffer[startAddress]->value ||
           buffer[currentAddress]->byteOffset != i) {
-        contiguous = false;
-        printvalue2(contiguous);
+        contiguous = false; // non-contiguous value
+      }
+
+      // push if
+      if (values.empty() ||                                 // empty or
+          (buffer[currentAddress] && values.back().isRef && // ( its a reference
+           (values.back().valinfo.ref->value !=
+                buffer[currentAddress]
+                    ->value || // and references are not same or
+            values.back().valinfo.ref->byteOffset !=
+                buffer[currentAddress]->byteOffset - values.back().end +
+                    values.back().start)) //  reference offset is not directly
+                                          //  next value )
+      ) {
+
+        if (buffer[currentAddress]) {
+          values.push_back(
+              ValueByteReferenceRange(buffer[currentAddress], i, i + 1));
+        } else {
+          values.push_back(ValueByteReferenceRange(currentAddress, i, i + 1));
+        }
+      } else {
+        ++values.back().end;
       }
     }
 
-    if (contiguous && firstSource != nullptr &&
-        byteCount <= firstSource->getType()->getIntegerBitWidth() / 8) {
-      return builder.CreateTrunc(firstSource,
-                                 Type::getIntNTy(context, byteCount * 8));
+    // if value is contiguous and value exists but we are trying to load a
+    // truncated value
+    // no need for this ?
+    /*
+    if (contiguous && buffer[startAddress] &&
+        byteCount <=
+            buffer[startAddress]->value->getType()->getIntegerBitWidth() / 8) {
+      return builder.CreateTrunc(buffer[startAddress]->value,
+                                 Type::getIntNTy(context, byteCount * 8)); // ?
     }
+    */
 
-    if (firstSource == nullptr) {
-      return ConstantInt::get(Type::getIntNTy(context, byteCount * 8), 0);
-    }
-
-    // when do we want to return nullptr and when do we want to return 0 ?
+    // when do we want to return nullptr and when do we want to return 0?
+    // we almost always want to return a value
     Value* result =
         ConstantInt::get(Type::getIntNTy(context, byteCount * 8), 0);
 
-    for (unsigned i = 0; i < byteCount; i++) {
-      unsigned currentAddress = startAddress + i;
+    int m = 0;
+    for (auto v : values) {
+      Value* byteValue = nullptr;
+      unsigned bytesize = v.end - v.start;
 
-      if (currentAddress < buffer.size() && buffer[currentAddress] != nullptr) {
-        auto* ref = buffer[currentAddress];
-        Value* byteValue = extractByte(builder, ref->value, ref->byteOffset);
-
-        printvalue(byteValue);
-        if (!result) {
-          result = createZExtFolder(builder, byteValue,
-                                    Type::getIntNTy(context, byteCount * 8));
-        } else {
-          Value* shiftedByteValue = createShlFolder(
-              builder,
-              createZExtFolder(builder, byteValue,
-                               Type::getIntNTy(context, byteCount * 8)),
-              APInt(byteCount * 8, i * 8));
-          result = createOrFolder(builder, result, shiftedByteValue,
-                                  "extractbytesthing");
-        }
+      APInt mem_value(1, 0);
+      if (v.isRef && v.valinfo.ref != nullptr) {
+        byteValue = extractBytes(builder, v.valinfo.ref->value,
+                                 v.valinfo.ref->byteOffset,
+                                 v.valinfo.ref->byteOffset + bytesize);
+      } else if (!v.isRef &&
+                 BinaryOperations::readMemory(v.valinfo.memoryAddress, bytesize,
+                                              mem_value)) {
+        byteValue = builder.getIntN(bytesize * 8, mem_value.getZExtValue());
       }
+      if (byteValue) {
+        printvalue(byteValue);
+
+        Value* shiftedByteValue = createShlFolder(
+            builder,
+            createZExtFolder(builder, byteValue,
+                             Type::getIntNTy(context, byteCount * 8)),
+            APInt(byteCount * 8, m * 8));
+        result = createOrFolder(builder, result, shiftedByteValue,
+                                "extractbytesthing");
+      }
+      m += bytesize;
     }
-    printvalue(result);
+
     return result;
   }
 
 private:
-  Value* extractByte(IRBuilder<>& builder, Value* value, uint64_t byteOffset) {
+  Value* extractBytes(IRBuilder<>& builder, Value* value, uint64_t startOffset,
+                      uint64_t endOffset) {
+    LLVMContext& context = builder.getContext();
 
     if (!value) {
-      return ConstantInt::get(Type::getInt8Ty(builder.getContext()), 0);
+      return ConstantInt::get(
+          Type::getIntNTy(context, (endOffset - startOffset) * 8), 0);
     }
-    uint64_t shiftAmount = byteOffset * 8;
+
+    uint64_t byteCount = endOffset - startOffset;
+
+    uint64_t shiftAmount = startOffset * 8;
+
+    printvalue2(endOffset);
+
+    printvalue2(startOffset);
+    printvalue2(byteCount);
+    printvalue2(shiftAmount);
+
     Value* shiftedValue = createLShrFolder(
         builder, value,
         APInt(value->getType()->getIntegerBitWidth(), shiftAmount),
-        "extractbyte");
-    printvalue2(shiftAmount);
+        "extractbytes");
+    printvalue(value);
     printvalue(shiftedValue);
-    return createTruncFolder(builder, shiftedValue,
-                             Type::getInt8Ty(builder.getContext()));
+
+    Value* truncatedValue = createTruncFolder(
+        builder, shiftedValue, Type::getIntNTy(context, byteCount * 8));
+    return truncatedValue;
   }
 };
 
@@ -270,10 +320,8 @@ namespace GEPStoreTracker {
 
     auto gepOffsetCI = cast<ConstantInt>(gepOffset);
 
-    if (gepOffsetCI->getZExtValue() < VirtualStack.buffer.size()) {
-      VirtualStack.updateValueReference(inst, inst->getValueOperand(),
-                                        gepOffsetCI->getZExtValue());
-    }
+    VirtualStack.updateValueReference(inst, inst->getValueOperand(),
+                                      gepOffsetCI->getZExtValue());
   }
 
   void insertMemoryOp(StoreInst* inst) {
@@ -289,14 +337,13 @@ namespace GEPStoreTracker {
       return;
 
     auto gepOffset = gepInst->getOperand(1);
-    if (!isa<ConstantInt>(gepOffset))
+    if (!isa<ConstantInt>(gepOffset)) // fix!!!!
       return;
 
     auto gepOffsetCI = cast<ConstantInt>(gepOffset);
 
-    if (gepOffsetCI->getZExtValue() < VirtualStack.buffer.size())
-      VirtualStack.addValueReference(inst, inst->getValueOperand(),
-                                     gepOffsetCI->getZExtValue());
+    VirtualStack.addValueReference(inst, inst->getValueOperand(),
+                                   gepOffsetCI->getZExtValue());
     BinaryOperations::WriteTo(gepOffsetCI->getZExtValue());
   }
 
@@ -402,20 +449,14 @@ namespace GEPStoreTracker {
       if (isa<ConstantInt>(loadOffset)) {
         auto loadOffsetCI = cast<ConstantInt>(loadOffset);
 
-        // todo: replace the condition to check if CI is in buffer where
-        // buffer is not stack
         auto loadOffsetCIval = loadOffsetCI->getZExtValue();
-        printvalue2(loadOffsetCIval);
 
-        if (VirtualStack.buffer.size() > loadOffsetCIval) {
-          printvalue2(loadOffsetCIval);
-          IRBuilder<> builder(load);
-          if (auto valueExtractedFromVirtualStack =
-                  VirtualStack.retrieveCombinedValue(builder, loadOffsetCIval,
-                                                     cloadsize)) {
-            printvalue(valueExtractedFromVirtualStack);
-            return valueExtractedFromVirtualStack;
-          }
+        IRBuilder<> builder(load);
+        auto valueExtractedFromVirtualStack =
+            VirtualStack.retrieveCombinedValue(builder, loadOffsetCIval,
+                                               cloadsize);
+        if (valueExtractedFromVirtualStack) {
+          return valueExtractedFromVirtualStack;
         }
       }
     } else

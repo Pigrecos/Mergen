@@ -279,6 +279,8 @@ inline llvm::raw_ostream& operator<<(llvm::raw_ostream& OS,
 #define RIP 0x007FFFFFFF400000
 #define STACKP_VALUE 0x14FF28
 
+#define ZYDIS_REGISTER_IS_XMM(reg) ((reg) >= ZYDIS_REGISTER_XMM0 && (reg) <= ZYDIS_REGISTER_XMM15)
+
 using ReverseRegisterMap = unordered_map<Value*, int>;
 using RegisterMap = unordered_map<int, Value*>;
 // BB start address, BB pointer, Final registers in that RegisterMap so we can
@@ -346,3 +348,16 @@ enum PATH_info {
 
 // 8 << (arg.argtype.size - 1)
 enum ArgType { NONE = 0, I8 = 1, I16 = 2, I32 = 3, I64 = 4 };
+
+struct RetItem {
+  uint64_t Address;
+  uint64_t RetAddress;
+};
+
+struct OpaquePredicateEntry {
+  uint64_t address;
+  uint64_t jmpAddress;
+};
+
+extern std::vector<RetItem> returnTable;
+extern std::vector<OpaquePredicateEntry> opaquePredicates;

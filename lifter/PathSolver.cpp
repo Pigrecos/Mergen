@@ -185,6 +185,38 @@ std::vector<llvm::APInt> getPossibleValues(const llvm::KnownBits& known,
   return values;
 }
 
+void minimal_optpass(Function* clonedFuncx) {
+
+  llvm::PassBuilder passBuilder;
+
+  llvm::LoopAnalysisManager loopAnalysisManager;
+  llvm::FunctionAnalysisManager functionAnalysisManager;
+  llvm::CGSCCAnalysisManager cGSCCAnalysisManager;
+  llvm::ModuleAnalysisManager moduleAnalysisManager;
+
+  passBuilder.registerModuleAnalyses(moduleAnalysisManager);
+  passBuilder.registerCGSCCAnalyses(cGSCCAnalysisManager);
+  passBuilder.registerFunctionAnalyses(functionAnalysisManager);
+  passBuilder.registerLoopAnalyses(loopAnalysisManager);
+  passBuilder.crossRegisterProxies(loopAnalysisManager, functionAnalysisManager,
+                                   cGSCCAnalysisManager, moduleAnalysisManager);
+
+  llvm::ModulePassManager modulePassManager;
+
+  llvm::Module* module = clonedFuncx->getParent();
+
+  llvm::FunctionPassManager fpm;
+
+  fpm.addPass(llvm::InstCombinePass());
+  fpm.addPass(llvm::EarlyCSEPass(true));
+  fpm.addPass(llvm::InstCombinePass());
+
+  modulePassManager.addPass(
+      llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
+
+  modulePassManager.run(*module, moduleAnalysisManager);
+}
+
 void final_optpass(Function* clonedFuncx) {
   llvm::PassBuilder passBuilder;
 
@@ -248,11 +280,28 @@ llvm::ValueToValueMapTy* flipVMap(const ValueToValueMapTy& VMap) {
 PATH_info solvePath(Function* function, uint64_t& dest, Value* simplifyValue) {
 
   PATH_info result = PATH_unsolved;
-  if (llvm::ConstantInt* constInt =
-          dyn_cast<llvm::ConstantInt>(simplifyValue)) {
+  if (llvm::ConstantInt* constInt =  dyn_cast<llvm::ConstantInt>(simplifyValue)) {
     dest = constInt->getZExtValue();
     result = PATH_solved;
     return result;
+  }
+
+  llvm::ValueToValueMapTy VMap;
+  llvm::Function* clonedFunctmp = llvm::CloneFunction(function, VMap);
+
+  std::unique_ptr<Module> destinationModule =
+      std::make_unique<Module>("destination_module", function->getContext());
+  clonedFunctmp->removeFromParent();
+
+  destinationModule->getFunctionList().push_back(clonedFunctmp);
+
+  Function* clonedFunc = destinationModule->getFunction(clonedFunctmp->getName());
+
+  minimal_optpass(clonedFunc);
+  if (PATH_info solved = getConstraintVal(clonedFunc, simplifyValue, dest)) {
+    if (solved == PATH_solved) {
+      return solved;
+    }
   }
 
   auto flippedRegisterMap = flipRegisterMap();

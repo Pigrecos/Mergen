@@ -2,6 +2,9 @@
 #define GEPTracker_H
 
 #include "includes.h"
+
+enum Assumption { Real, Assumed }; // add None
+
 namespace BinaryOperations {
 
   const char* getName(uint64_t offset);
