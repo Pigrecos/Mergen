@@ -6,6 +6,27 @@
 
 #define DEFINE_FUNCTION(name) void lift_##name()
 
+class MemoryConcretizationInterface {
+public:
+  virtual bool hasConcretization(uint64_t address) const = 0;
+  virtual uint64_t getConcretization(uint64_t address) const = 0;
+};
+
+class TestMemoryConcretization : public MemoryConcretizationInterface {
+  std::unordered_map<uint64_t, uint64_t> concretizationMap;
+
+public:
+  bool hasConcretization(uint64_t address) const override {
+    return concretizationMap.count(address) > 0;
+  }
+  uint64_t getConcretization(uint64_t address) const override {
+    return concretizationMap.at(address);
+  }
+  void addConcretization(uint64_t address, uint64_t value) {
+    concretizationMap[address] = value;
+  }
+};
+
 class lifterClass {
 public:
   lifterClass(IRBuilder<>& irbuilder) : builder(irbuilder) {};
@@ -25,10 +46,16 @@ public:
   Value* memory;
   Value* TEB;
 
+  std::vector<RetItem> returnTable;
+  std::vector<OpaquePredicateEntry> opaquePredicates;
+  TestMemoryConcretization memoryConcretization;
+
+  std::vector<RetItem> LoadRetItemsFromFile(const char* filename);
+  std::vector<OpaquePredicateEntry> loadOpaquePredicates(const char* filename);
+
   void liftInstruction();
   void liftInstructionSemantics();
-  void branchHelper(Value* condition, string instname, int numbered,
-                    bool reverse = false);
+  void branchHelper(Value* condition, string instname, int numbered, bool reverse= false);
   void Init_Flags();
   Value* setFlag(Flag flag, Value* newValue = nullptr);
   Value* getFlag(Flag flag);
@@ -44,23 +71,17 @@ public:
   void SetRegisterValue(int key, Value* value);
   void SetRFLAGSValue(Value* value);
   PATH_info solvePath(Function* function, uint64_t& dest, Value* simplifyValue);
-  void replaceAllUsesWithandReplaceRMap(Value* v, Value* nv,
-                                        ReverseRegisterMap rVMap);
-  void simplifyUsers(Value* newValue, DataLayout& DL,
-                     ReverseRegisterMap flippedRegisterMap);
+  void replaceAllUsesWithandReplaceRMap(Value* v, Value* nv, ReverseRegisterMap rVMap);
+  void simplifyUsers(Value* newValue, DataLayout& DL, ReverseRegisterMap flippedRegisterMap);
   Value* popStack();
   void pushFlags(vector<Value*> value, string address);
   vector<Value*> GetRFLAGS();
-  Value* GetOperandValue(ZydisDecodedOperand& op, int possiblesize,
-                         string address = "");
-  Value* SetOperandValue(ZydisDecodedOperand& op, Value* value,
-                         string address = "");
-  void callFunctionIR(string functionName,
-                      funcsignatures::functioninfo* funcInfo);
+  Value* GetOperandValue(ZydisDecodedOperand& op, int possiblesize, string address = "");
+  Value* SetOperandValue(ZydisDecodedOperand& op, Value* value, string address = "");
+  void callFunctionIR(string functionName, funcsignatures::functioninfo* funcInfo);
   Value* GetEffectiveAddress(ZydisDecodedOperand& op, int possiblesize);
   vector<Value*> parseArgs(funcsignatures::functioninfo* funcInfo);
-  FunctionType* parseArgsType(funcsignatures::functioninfo* funcInfo,
-                              LLVMContext& context);
+  FunctionType* parseArgsType(funcsignatures::functioninfo* funcInfo, LLVMContext& context);
   Value* GetRFLAGSValue();
   DEFINE_FUNCTION(movsb);
   DEFINE_FUNCTION(movaps);

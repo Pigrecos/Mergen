@@ -194,36 +194,26 @@ Value* lifterMemoryBuffer::retrieveCombinedValue(IRBuilder<>& builder,
   return result;
 }
 
-Value* lifterMemoryBuffer::extractBytes(IRBuilder<>& builder, Value* value,
-                                        uint64_t startOffset,
-                                        uint64_t endOffset) {
+Value* lifterMemoryBuffer::extractBytes(IRBuilder<>& builder, Value* value, uint64_t startOffset, uint64_t endOffset) {
   LLVMContext& context = builder.getContext();
+  uint64_t byteCount = endOffset - startOffset;
+  Type* resultType = Type::getIntNTy(context, byteCount * 8);
 
-  if (!value) {
-    return ConstantInt::get(
-        Type::getIntNTy(context, (endOffset - startOffset) * 8), 0);
+  printvalue(value);
+
+  // Shift right if needed
+  if (startOffset > 0) {
+    uint64_t shiftAmount = startOffset * 8;
+    value = createLShrFolder(builder, value, APInt(value->getType()->getIntegerBitWidth(), shiftAmount), "shiftedValue");
   }
 
-  uint64_t byteCount = endOffset - startOffset;
-
-  uint64_t shiftAmount = startOffset * 8;
-
-  printvalue2(endOffset);
-
-  printvalue2(startOffset);
-  printvalue2(byteCount);
-  printvalue2(shiftAmount);
-
-  Value* shiftedValue = createLShrFolder(
-      builder, value,
-      APInt(value->getType()->getIntegerBitWidth(), shiftAmount),
-      "extractbytes");
   printvalue(value);
-  printvalue(shiftedValue);
 
-  Value* truncatedValue = createTruncFolder(
-      builder, shiftedValue, Type::getIntNTy(context, byteCount * 8));
-  return truncatedValue;
+  // Extend or truncate to the required size
+  value = createZExtOrTruncFolder(builder, value, resultType);
+
+  printvalue(value);
+  return value;
 }
 
 namespace SCCPSimplifier {
@@ -299,14 +289,15 @@ namespace GEPStoreTracker {
                                       gepOffsetCI->getZExtValue());
   }
 
-  map<uint64_t, uint64_t> pageMap;
+  map<int64_t, int64_t> pageMap;
 
-  void markMemPaged(uint64_t start, uint64_t end) {
+  void markMemPaged(int64_t start, int64_t end) {
     //
     pageMap[start] = end;
+    
   }
 
-  bool isMemPaged(uint64_t address) {
+  bool isMemPaged(int64_t address) {
     // ideally we want to be able to do this with KnownBits aswell
     auto it = pageMap.upper_bound(address);
     if (it == pageMap.begin())
@@ -319,7 +310,7 @@ namespace GEPStoreTracker {
 
   isPaged isValuePaged(Value* address, Instruction* ctxI) {
     if (isa<ConstantInt>(address)) {
-      return isMemPaged(cast<ConstantInt>(address)->getZExtValue())
+      return isMemPaged((int64_t)cast<ConstantInt>(address)->getZExtValue())
                  ? MEMORY_PAGED
                  : MEMORY_NOT_PAGED;
     }
@@ -512,7 +503,7 @@ namespace GEPStoreTracker {
     auto loadPointer = loadPtrGEP->getPointerOperand();
     auto loadOffset = loadPtrGEP->getOperand(1);
     printvalue(loadOffset);
-
+    
     // if we know all the stores, we can use our buffer
     // however, if we dont know all the stores
     // we have to if check each store overlaps with our load
@@ -545,6 +536,7 @@ namespace GEPStoreTracker {
     vector<Instruction*> clearedMemInfos;
 
     clearedMemInfos = memInfos;
+
     removeDuplicateOffsets(clearedMemInfos);
 
     Value* retval = nullptr;
@@ -552,7 +544,6 @@ namespace GEPStoreTracker {
     for (auto inst : clearedMemInfos) {
 
       // we are only interested in previous instructions
-
       // replace it with something more efficent
       // auto MemLoc = MemoryLocation::get(inst);
 

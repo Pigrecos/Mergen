@@ -346,3 +346,13 @@ enum PATH_info {
 
 // 8 << (arg.argtype.size - 1)
 enum ArgType { NONE = 0, I8 = 1, I16 = 2, I32 = 3, I64 = 4 };
+
+struct RetItem {
+  uint64_t Address;
+  uint64_t RetAddress;
+};
+
+struct OpaquePredicateEntry {
+  uint64_t address;
+  uint64_t jmpAddress;
+};

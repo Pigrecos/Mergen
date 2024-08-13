@@ -13,10 +13,66 @@
 vector<lifterClass*> lifters;
 uint64_t original_address = 0;
 
+
+std::vector<RetItem> lifterClass::LoadRetItemsFromFile(const char* filename) {
+  std::vector<RetItem> items;
+  std::ifstream file(filename);
+  std::string line;
+
+  if (!file.is_open()) {
+    std::cerr << "Failed to open file: " << filename << std::endl;
+    return items;
+  }
+
+  while (std::getline(file, line)) {
+    std::istringstream iss(line);
+    std::string addressStr, retAddrsStr;
+
+    if (std::getline(iss, addressStr, '=') && std::getline(iss, retAddrsStr)) {
+      RetItem item;
+      item.Address = std::stoull(addressStr, nullptr, 16); // Assume hex input
+      item.RetAddress =
+          std::stoull(retAddrsStr, nullptr, 16); // Assume hex input
+      items.push_back(item);
+    }
+  }
+
+  returnTable = items;
+
+  return items;
+}
+
+std::vector<OpaquePredicateEntry> lifterClass::loadOpaquePredicates(const char* filename) {
+  std::vector<OpaquePredicateEntry> items;
+  std::ifstream file(filename);
+  std::string line;
+
+  if (!file.is_open()) {
+    std::cerr << "Failed to open file: " << filename << std::endl;
+    return items;
+  }
+
+  while (std::getline(file, line)) {
+    std::istringstream iss(line);
+    std::string addressStr, jmpAddrsStr;
+
+    if (std::getline(iss, addressStr, '=') && std::getline(iss, jmpAddrsStr)) {
+      OpaquePredicateEntry item;
+      item.address = std::stoull(addressStr, nullptr, 16); // Assume hex input
+      item.jmpAddress =
+          std::stoull(jmpAddrsStr, nullptr, 16); // Assume hex input
+      items.push_back(item);
+    }
+  }
+
+  opaquePredicates = items;
+
+  return items;
+}
+
 // consider having this function in a class, later we can use multi-threading to
 // explore different paths
-void asm_to_zydis_to_lift(ZyanU8* data, ZyanU64 runtime_address,
-                          ZyanU64 file_base) {
+void asm_to_zydis_to_lift(ZyanU8* data, ZyanU64 runtime_address,  ZyanU64 file_base) {
 
   while (lifters.size() > 0) {
     lifterClass* lifter = lifters.back();
@@ -51,8 +107,7 @@ void asm_to_zydis_to_lift(ZyanU8* data, ZyanU64 runtime_address,
 
       // why tf compiler tells this is unused?
       ZydisDisassembledInstruction instruction;
-      ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, runtime_address,
-                            data + offset, 15, &instruction);
+      ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, runtime_address, data + offset, 15, &instruction);
       lifter->instruction = &instruction;
       auto counter = debugging::increaseInstCounter() - 1;
       debugging::doIfDebug([&]() {
@@ -73,8 +128,7 @@ void asm_to_zydis_to_lift(ZyanU8* data, ZyanU64 runtime_address,
   }
 }
 
-void InitFunction_and_LiftInstructions(ZyanU64 runtime_address,
-                                       uint64_t file_base) {
+void InitFunction_and_LiftInstructions(ZyanU64 runtime_address, uint64_t file_base) {
   ZydisDecoder decoder;
   ZydisFormatter formatter;
 
@@ -86,32 +140,22 @@ void InitFunction_and_LiftInstructions(ZyanU64 runtime_address,
   llvm::Module lifting_module = llvm::Module(mod_name.c_str(), context);
 
   vector<llvm::Type*> argTypes;
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
-  argTypes.push_back(llvm::Type::getInt64Ty(context));
+  // Aggiungiamo 16 argomenti Int64 per i registri generali
+  for (int i = 0; i < 16; ++i) {
+    argTypes.push_back(llvm::Type::getInt64Ty(context));
+  }
+  // Aggiungiamo 16 argomenti Int128 per i registri XMM
+  for (int i = 0; i < 16; ++i) {
+    argTypes.push_back(llvm::Type::getInt128Ty(context));
+  }
+  // Aggiungiamo l'argomento per il puntatore alla memoria
   argTypes.push_back(llvm::PointerType::get(context, 0));
   argTypes.push_back(llvm::PointerType::get(context, 0)); // temp fix TEB
 
-  auto functionType =
-      llvm::FunctionType::get(llvm::Type::getInt64Ty(context), argTypes, 0);
+  auto functionType = llvm::FunctionType::get(llvm::Type::getInt64Ty(context), argTypes, 0);
 
   string function_name = "main";
-  auto function =
-      llvm::Function::Create(functionType, llvm::Function::ExternalLinkage,
-                             function_name.c_str(), lifting_module);
+  auto function = llvm::Function::Create(functionType, llvm::Function::ExternalLinkage, function_name.c_str(), lifting_module);
 
   string block_name = "entry";
   auto bb = llvm::BasicBlock::Create(context, block_name.c_str(), function);
@@ -123,6 +167,14 @@ void InitFunction_and_LiftInstructions(ZyanU64 runtime_address,
   lifterClass* main = new lifterClass(builder);
   auto RegisterList = main->InitRegisters(function, runtime_address);
   main->blockInfo = make_tuple(runtime_address, bb, RegisterList);
+
+  main->LoadRetItemsFromFile("table.txt");
+  main->loadOpaquePredicates("opaque_predicates.txt");
+
+  main->memoryConcretization.addConcretization(5493503224, 0);
+  main->memoryConcretization.addConcretization(88, 17937920);
+  main->memoryConcretization.addConcretization(17937920, 5832560720);
+
   // blockAddresses->push_back(make_tuple(runtime_address, bb, RegisterList));
   lifters.push_back(main);
 
@@ -164,6 +216,8 @@ int main(int argc, char* argv[]) {
   const char* filename = args[1].c_str();
   uint64_t startAddr = stoull(args[2], nullptr, 0);
 
+
+
   ifstream ifs(filename, ios::binary);
   if (!ifs.is_open()) {
     cout << "Failed to open the file." << endl;
@@ -189,8 +243,7 @@ int main(int argc, char* argv[]) {
   auto ADDRESS = ntHeaders->optional_header.image_base;
   auto imageSize = ntHeaders->optional_header.size_image;
   auto stackSize = ntHeaders->optional_header.size_stack_reserve;
-  GEPStoreTracker::markMemPaged(STACKP_VALUE - stackSize,
-                                STACKP_VALUE + stackSize);
+  GEPStoreTracker::markMemPaged((int64_t)(STACKP_VALUE - stackSize), (int64_t)(STACKP_VALUE + stackSize));
   GEPStoreTracker::markMemPaged(ADDRESS, ADDRESS + imageSize);
 
   uint64_t RVA = static_cast<uint64_t>(startAddr - ADDRESS);

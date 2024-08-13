@@ -76,13 +76,10 @@ PATH_info getConstraintVal(llvm::Function* function, Value* constraint,
                            uint64_t& dest) {
   PATH_info result = PATH_unsolved;
   printvalue(constraint);
-  auto simplified_constraint = simplifyValue(
-      constraint,
-      function->getParent()->getDataLayout()); // this is such a hack
+  auto simplified_constraint = simplifyValue(constraint, function->getParent()->getDataLayout()); // this is such a hack
   printvalue(simplified_constraint);
 
-  if (llvm::ConstantInt* constInt =
-          dyn_cast<llvm::ConstantInt>(simplified_constraint)) {
+  if (llvm::ConstantInt* constInt =  dyn_cast<llvm::ConstantInt>(simplified_constraint)) {
     printvalue(constInt) dest = constInt->getZExtValue();
     result = PATH_solved;
     return result;
@@ -129,7 +126,6 @@ void final_optpass(Function* clonedFuncx) {
     size_t afterSize = module->getInstructionCount();
 
     if (beforeSize != afterSize) {
-
       changed = true;
     }
 

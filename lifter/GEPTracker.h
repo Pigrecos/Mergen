@@ -80,9 +80,9 @@ namespace GEPStoreTracker {
 
   void updateMemoryOp(StoreInst* inst);
 
-  void markMemPaged(uint64_t start, uint64_t end);
+  void markMemPaged(int64_t start, int64_t end);
 
-  bool isMemPaged(uint64_t address);
+  bool isMemPaged(int64_t address);
 
   void insertMemoryOp(StoreInst* inst);
 

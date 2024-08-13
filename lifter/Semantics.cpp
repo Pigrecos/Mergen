@@ -13,8 +13,7 @@
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/ErrorHandling.h>
 
-FunctionType* lifterClass::parseArgsType(funcsignatures::functioninfo* funcInfo,
-                                         LLVMContext& context) {
+FunctionType* lifterClass::parseArgsType(funcsignatures::functioninfo* funcInfo, LLVMContext& context) {
   if (!funcInfo) {
     FunctionType* externFuncType = FunctionType::get(
         Type::getInt64Ty(context),
@@ -50,40 +49,43 @@ vector<Value*> lifterClass::parseArgs(funcsignatures::functioninfo* funcInfo) {
 
   auto RspRegister = GetRegisterValue(ZYDIS_REGISTER_RSP);
   if (!funcInfo)
-    return {createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RAX),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RCX),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RDX),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RBX),
-                             Type::getInt64Ty(context)),
-            RspRegister,
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RBP),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RSI),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RDI),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RDI),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R8),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R9),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R10),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R11),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R12),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R13),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R14),
-                             Type::getInt64Ty(context)),
-            createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R15),
-                             Type::getInt64Ty(context)),
-            getMemory()};
+    return {
+        // General purpose registers
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RAX), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RCX), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RDX), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RBX), Type::getInt64Ty(context)),
+        RspRegister,
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RBP), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RSI), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_RDI), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R8),  Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R9),  Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R10), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R11), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R12), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R13), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R14), Type::getInt64Ty(context)),
+        createZExtFolder(builder, GetRegisterValue(ZYDIS_REGISTER_R15), Type::getInt64Ty(context)),
+        // XMM registers
+        GetRegisterValue(ZYDIS_REGISTER_XMM0),
+        GetRegisterValue(ZYDIS_REGISTER_XMM1),
+        GetRegisterValue(ZYDIS_REGISTER_XMM2),
+        GetRegisterValue(ZYDIS_REGISTER_XMM3),
+        GetRegisterValue(ZYDIS_REGISTER_XMM4),
+        GetRegisterValue(ZYDIS_REGISTER_XMM5),
+        GetRegisterValue(ZYDIS_REGISTER_XMM6),
+        GetRegisterValue(ZYDIS_REGISTER_XMM7),
+        GetRegisterValue(ZYDIS_REGISTER_XMM8),
+        GetRegisterValue(ZYDIS_REGISTER_XMM9),
+        GetRegisterValue(ZYDIS_REGISTER_XMM10),
+        GetRegisterValue(ZYDIS_REGISTER_XMM11),
+        GetRegisterValue(ZYDIS_REGISTER_XMM12),
+        GetRegisterValue(ZYDIS_REGISTER_XMM13),
+        GetRegisterValue(ZYDIS_REGISTER_XMM14),
+        GetRegisterValue(ZYDIS_REGISTER_XMM15),
+        // Memory
+        getMemory()};
 
   std::vector<Value*> args;
   for (const auto& arg : funcInfo->args) {
@@ -231,8 +233,7 @@ Value* computeSignFlag(IRBuilder<>& builder, Value* value) { // x < 0 = sf
 // this function is used for jumps that are related to user, ex: vms using
 // different handlers, jmptables, etc.
 
-void lifterClass::branchHelper(Value* condition, string instname, int numbered,
-                               bool reverse) {
+void lifterClass::branchHelper(Value* condition, string instname, int numbered, bool reverse) {
   LLVMContext& context = builder.getContext();
   // TODO:
   // save the current state of memory, registers etc.,
@@ -244,15 +245,11 @@ void lifterClass::branchHelper(Value* condition, string instname, int numbered,
   auto function = block->getParent();
 
   auto dest = instruction->operands[0];
-  auto true_jump_addr = dest.imm.value.s + instruction->runtime_address +
-                        instruction->info.length;
-  Value* true_jump =
-      ConstantInt::get(function->getReturnType(), true_jump_addr);
-  auto false_jump_addr =
-      instruction->runtime_address + instruction->info.length;
-  Value* false_jump =
-      ConstantInt::get(function->getReturnType(), false_jump_addr);
-  Value* next_jump = nullptr;
+  auto true_jump_addr  = dest.imm.value.s + instruction->runtime_address + instruction->info.length;
+  Value* true_jump     = ConstantInt::get(function->getReturnType(), true_jump_addr);
+  auto false_jump_addr = instruction->runtime_address + instruction->info.length;
+  Value* false_jump    = ConstantInt::get(function->getReturnType(), false_jump_addr);
+  Value* next_jump     = nullptr;
 
   if (!reverse)
     next_jump = createSelectFolder(builder, condition, true_jump, false_jump);
@@ -260,7 +257,25 @@ void lifterClass::branchHelper(Value* condition, string instname, int numbered,
     next_jump = createSelectFolder(builder, condition, false_jump, true_jump);
 
   uint64_t destination = 0;
-  PATH_info pathInfo = solvePath(function, destination, next_jump);
+
+  PATH_info pathInfo;
+  // Controlla se l'indirizzo corrente è nella tabella dei predicati opachi
+  auto it = std::find_if(opaquePredicates.begin(), opaquePredicates.end(),
+                         [&](const OpaquePredicateEntry& entry) {
+                           return entry.address == instruction->runtime_address;
+                         });
+
+  if (it != opaquePredicates.end()) {
+    // Se troviamo un predicato opaco, usiamo la nuova destinazione
+    pathInfo = PATH_solved;
+    destination = it->jmpAddress;
+    printvalueforce2(instruction->runtime_address);
+    outs() << "Opaque Predicate replaced!\n";
+    outs().flush();
+  } else {
+    // Altrimenti, proseguiamo normalmente
+    pathInfo = solvePath(function, destination, next_jump);
+  }
 
   ValueToValueMapTy VMap_test;
 
@@ -270,8 +285,7 @@ void lifterClass::branchHelper(Value* condition, string instname, int numbered,
   if (pathInfo == PATH_solved) {
 
     string block_name = "jmp-" + to_string(destination) + "-";
-    auto bb = BasicBlock::Create(context, block_name.c_str(),
-                                 builder.GetInsertBlock()->getParent());
+    auto bb = BasicBlock::Create(context, block_name.c_str(), builder.GetInsertBlock()->getParent());
 
     builder.CreateBr(bb);
 
@@ -282,11 +296,9 @@ void lifterClass::branchHelper(Value* condition, string instname, int numbered,
   if (pathInfo == PATH_unsolved) {
 
     // auto cinst = cast<ICmpInst>(condition);
-    auto bb_true = BasicBlock::Create(context, "bb_true",
-                                      builder.GetInsertBlock()->getParent());
+    auto bb_true = BasicBlock::Create(context, "bb_true", builder.GetInsertBlock()->getParent());
 
-    auto bb_false = BasicBlock::Create(context, "bb_false",
-                                       builder.GetInsertBlock()->getParent());
+    auto bb_false = BasicBlock::Create(context, "bb_false", builder.GetInsertBlock()->getParent());
 
     BranchInst* BR = nullptr;
     if (!reverse)
@@ -300,8 +312,7 @@ void lifterClass::branchHelper(Value* condition, string instname, int numbered,
 
     lifterClass* newlifter = new lifterClass(builder);
 
-    newlifter->blockInfo =
-        make_tuple(false_jump_addr, bb_false, getRegisters());
+    newlifter->blockInfo = make_tuple(false_jump_addr, bb_false, getRegisters());
 
     lifters.push_back(newlifter);
 
@@ -831,8 +842,7 @@ void lifterClass::lift_ret() {
 
   ROP_info result = ROP_return;
 
-  if (llvm::ConstantInt* constInt =
-          llvm::dyn_cast<llvm::ConstantInt>(rspvalue)) {
+  if (llvm::ConstantInt* constInt = llvm::dyn_cast<llvm::ConstantInt>(rspvalue)) {
     int64_t rspval = constInt->getSExtValue();
     printvalue2(rspval);
     result = rspval == STACKP_VALUE ? REAL_return : ROP_return;
@@ -842,8 +852,7 @@ void lifterClass::lift_ret() {
     lastinst->eraseFromParent();
     block->setName("real_ret");
     auto rax = GetRegisterValue(ZYDIS_REGISTER_RAX);
-    builder.CreateRet(
-        createZExtFolder(builder, rax, Type::getInt64Ty(rax->getContext())));
+    builder.CreateRet(createZExtFolder(builder, rax, Type::getInt64Ty(rax->getContext())));
     Function* originalFunc_finalnopt = builder.GetInsertBlock()->getParent();
 
     std::string Filename_finalnopt = "output_finalnoopt.ll";
@@ -865,7 +874,23 @@ void lifterClass::lift_ret() {
     return;
   }
 
-  PATH_info pathInfo = solvePath(function, destination, realval);
+  auto it = std::find_if(returnTable.begin(), returnTable.end(),
+                         [&](const RetItem& item) {
+                           return item.Address == instruction->runtime_address;
+                         });
+
+  PATH_info pathInfo;
+  if (it != returnTable.end()) {
+    // Abbiamo trovato una corrispondenza
+    destination = it->RetAddress;
+    pathInfo = PATH_solved;
+    printvalue2(destination);
+    // printvalue2("Found in returnTable");
+    returnTable.erase(it);
+  } else {
+    // Se non troviamo una corrispondenza, procediamo con solvePath
+    pathInfo = solvePath(function, destination, realval);
+  }
 
   block->setName("previousret_block");
 
@@ -875,21 +900,14 @@ void lifterClass::lift_ret() {
     block->setName("fake_ret");
 
     string block_name = "jmp_ret-" + to_string(destination) + "-";
-    auto bb = BasicBlock::Create(context, block_name.c_str(),
-                                 builder.GetInsertBlock()->getParent());
+    auto bb = BasicBlock::Create(context, block_name.c_str(), builder.GetInsertBlock()->getParent());
 
-    auto val = ConstantInt::getSigned(Type::getInt64Ty(context),
-                                      8); // assuming its x64
-    auto result = createAddFolder(
-        builder, rspvalue, val,
-        "ret-new-rsp-" + to_string(instruction->runtime_address) + "-");
+    auto val = ConstantInt::getSigned(Type::getInt64Ty(context), 8); // assuming its x64
+    auto result = createAddFolder(builder, rspvalue, val, "ret-new-rsp-" + to_string(instruction->runtime_address) + "-");
 
     if (instruction->operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
       rspaddr = instruction->operands[3];
-      result = createAddFolder(
-          builder, result,
-          ConstantInt::get(result->getType(),
-                           instruction->operands[0].imm.value.u));
+      result = createAddFolder(builder, result, ConstantInt::get(result->getType(), instruction->operands[0].imm.value.u));
     }
 
     SetRegisterValue(rsp, result); // then add rsp 8

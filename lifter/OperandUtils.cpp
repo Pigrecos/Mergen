@@ -175,14 +175,13 @@ Value* doPatternMatching(Instruction::BinaryOps I, Value* op0, Value* op1) {
   return nullptr;
 }
 
-static void computeKnownBitsFromCmp(Value* V, CmpInst::Predicate Pred,
-                                    Value* LHS, Value* RHS, KnownBits& Known,
-                                    const SimplifyQuery& Q) {
+static void computeKnownBitsFromCmp(Value* V, CmpInst::Predicate Pred, Value* LHS, Value* RHS, KnownBits& Known, const SimplifyQuery& Q) {
   // Handle comparison of pointer to null explicitly, as it will not be
   // covered by the m_APInt() logic below.
-
+  
   if (LHS == V && match(RHS, m_Zero())) {
     int iszero = Pred;
+    
     switch (Pred) {
     case ICmpInst::ICMP_EQ:
       Known.setAllZero();
@@ -265,12 +264,12 @@ static void computeKnownBitsFromCmp(Value* V, CmpInst::Predicate Pred,
   }
 }
 
-void getKnownBitsFromContext(Value* V, KnownBits& Known,
-                             const SimplifyQuery& Q) {
+void getKnownBitsFromContext(Value* V, KnownBits& Known, const SimplifyQuery& Q) {
   if (!Q.CxtI)
     return;
+  
   if (Q.DC && Q.DT) {
-
+    
     // Handle dominating conditions.
     for (BranchInst* BI : Q.DC->conditionsFor(V)) {
       auto* Cmp = dyn_cast<ICmpInst>(BI->getCondition());
@@ -293,6 +292,7 @@ void getKnownBitsFromContext(Value* V, KnownBits& Known,
     if (Known.hasConflict())
       Known.resetAll();
   }
+ 
 }
 
 // how to get all possible values
@@ -303,6 +303,7 @@ KnownBits analyzeValueKnownBits(Value* value, Instruction* ctxI) {
 
   KnownBits knownBits(64);
   knownBits.resetAll();
+  
   if (value->getType() == Type::getInt128Ty(value->getContext()))
     return knownBits;
 
@@ -899,7 +900,7 @@ Value* createICMPFolder(IRBuilder<>& builder, CmpInst::Predicate P, Value* LHS,
   auto result = builder.CreateICmp(P, LHS, RHS, Name);
 
   if (auto ctxI = dyn_cast<Instruction>(result)) {
-
+         
     KnownBits KnownLHS = analyzeValueKnownBits(LHS, ctxI);
     KnownBits KnownRHS = analyzeValueKnownBits(RHS, ctxI);
 
@@ -908,7 +909,7 @@ Value* createICMPFolder(IRBuilder<>& builder, CmpInst::Predicate P, Value* LHS,
     }
     printvalue2(KnownLHS) printvalue2(KnownRHS);
   }
-
+  
   if (auto patternCheck = ICMPPatternMatcher(builder, P, LHS, RHS, Name)) {
     printvalue(patternCheck);
     return patternCheck;
@@ -1144,23 +1145,26 @@ RegisterMap lifterClass::InitRegisters(Function* function, ZyanU64 rip) {
   // rsp_unaligned = %rsp % 16
   // rsp_aligned_to16 = rsp - rsp_unaligned
   int zydisRegister = ZYDIS_REGISTER_RAX;
+  int xmmRegister = ZYDIS_REGISTER_XMM0;
 
   auto argEnd = function->arg_end();
   for (auto argIt = function->arg_begin(); argIt != argEnd; ++argIt) {
 
     Argument* arg = &*argIt;
-    arg->setName(ZydisRegisterGetString((ZydisRegister)zydisRegister));
-
-    if (std::next(argIt) == argEnd) {
+    if (zydisRegister <= ZYDIS_REGISTER_R15) {
+      arg->setName(ZydisRegisterGetString((ZydisRegister)zydisRegister));
+      Registers[(ZydisRegister)zydisRegister] = arg;
+      zydisRegister++;
+    } else if (xmmRegister <= ZYDIS_REGISTER_XMM15) {
+      arg->setName(ZydisRegisterGetString((ZydisRegister)xmmRegister));
+      Registers[(ZydisRegister)xmmRegister] = arg;
+      xmmRegister++;
+    } else if (std::next(argIt) == argEnd) {
       arg->setName("memory");
       memoryAlloc = arg;
     } else if (std::next(argIt, 2) == argEnd) {
       arg->setName("TEB");
       TEB = arg;
-    } else {
-      arg->setName(ZydisRegisterGetString((ZydisRegister)zydisRegister));
-      Registers[(ZydisRegister)zydisRegister] = arg;
-      zydisRegister++;
     }
   }
 
@@ -1246,6 +1250,10 @@ Value* lifterClass::GetRegisterValue(int key) {
 
   if (key == ZYDIS_REGISTER_RFLAGS || key == ZYDIS_REGISTER_EFLAGS) {
     return GetRFLAGSValue();
+  }
+
+  if (key >= ZYDIS_REGISTER_XMM0 && key <= ZYDIS_REGISTER_XMM15) {
+    return Registers[key];
   }
 
   /*
@@ -1364,6 +1372,11 @@ void lifterClass::SetRegisterValue(int key, Value* value) {
     return;
   }
 
+  if (key >= ZYDIS_REGISTER_XMM0 && key <= ZYDIS_REGISTER_XMM15) {
+    Registers[key] = value;
+    return;
+  }
+
   int newKey = (key != ZYDIS_REGISTER_RFLAGS) && (key != ZYDIS_REGISTER_RIP)
                    ? ZydisRegisterGetLargestEnclosing(
                          ZYDIS_MACHINE_MODE_LONG_64, (ZydisRegister)key)
@@ -1437,8 +1450,7 @@ Value* ConvertIntToPTR(IRBuilder<>& builder, Value* effectiveAddress) {
   return pointer;
 }
 
-Value* lifterClass::GetOperandValue(ZydisDecodedOperand& op, int possiblesize,
-                                    string address) {
+Value* lifterClass::GetOperandValue(ZydisDecodedOperand& op, int possiblesize, string address) {
   LLVMContext& context = builder.getContext();
   auto type = Type::getIntNTy(context, possiblesize);
 
@@ -1469,27 +1481,23 @@ Value* lifterClass::GetOperandValue(ZydisDecodedOperand& op, int possiblesize,
     Value* baseValue = nullptr;
     if (op.mem.base != ZYDIS_REGISTER_NONE) {
       baseValue = GetRegisterValue(op.mem.base);
-      baseValue =
-          createZExtFolder(builder, baseValue, Type::getInt64Ty(context));
+      baseValue = createZExtFolder(builder, baseValue, Type::getInt64Ty(context));
       printvalue(baseValue);
     }
 
     Value* indexValue = nullptr;
     if (op.mem.index != ZYDIS_REGISTER_NONE) {
       indexValue = GetRegisterValue(op.mem.index);
-      indexValue =
-          createZExtFolder(builder, indexValue, Type::getInt64Ty(context));
+      indexValue = createZExtFolder(builder, indexValue, Type::getInt64Ty(context));
       printvalue(indexValue);
       if (op.mem.scale > 1) {
-        Value* scaleValue =
-            ConstantInt::get(Type::getInt64Ty(context), op.mem.scale);
+        Value* scaleValue = ConstantInt::get(Type::getInt64Ty(context), op.mem.scale);
         indexValue = builder.CreateMul(indexValue, scaleValue);
       }
     }
 
     if (baseValue && indexValue) {
-      effectiveAddress =
-          createAddFolder(builder, baseValue, indexValue, "bvalue_indexvalue");
+      effectiveAddress = createAddFolder(builder, baseValue, indexValue, "bvalue_indexvalue");
     } else if (baseValue) {
       effectiveAddress = baseValue;
     } else if (indexValue) {
@@ -1499,10 +1507,8 @@ Value* lifterClass::GetOperandValue(ZydisDecodedOperand& op, int possiblesize,
     }
 
     if (op.mem.disp.has_displacement) {
-      Value* dispValue =
-          ConstantInt::get(Type::getInt64Ty(context), (int)(op.mem.disp.value));
-      effectiveAddress =
-          createAddFolder(builder, effectiveAddress, dispValue, "memory_addr");
+      Value* dispValue = ConstantInt::get(Type::getInt64Ty(context), (int)(op.mem.disp.value));
+      effectiveAddress = createAddFolder(builder, effectiveAddress, dispValue, "memory_addr");
     }
     printvalue(effectiveAddress);
 
@@ -1514,22 +1520,37 @@ Value* lifterClass::GetOperandValue(ZydisDecodedOperand& op, int possiblesize,
     if (op.mem.segment == ZYDIS_REGISTER_GS)
       memoryOperand = TEB;
 
-    Value* pointer = builder.CreateGEP(Type::getInt8Ty(context), memoryOperand,
-                                       indices, "GEPLoadxd-" + address + "-");
+    Value* pointer = builder.CreateGEP(Type::getInt8Ty(context), memoryOperand, indices, "GEPLoadxd-" + address + "-");
 
-    auto retval =
-        builder.CreateLoad(loadType, pointer, "Loadxd-" + address + "-");
+    auto retval = builder.CreateLoad(loadType, pointer, "Loadxd-" + address + "-");
 
     GEPStoreTracker::loadMemoryOp(retval);
+
+    if (isa<ConstantInt>(effectiveAddress)) {
+      ConstantInt* effectiveAddressInt = dyn_cast<ConstantInt>(effectiveAddress);
+
+      if (!effectiveAddressInt)
+        return nullptr;
+
+      uint64_t addr = effectiveAddressInt->getZExtValue();
+      unsigned byteSize = loadType->getIntegerBitWidth() / 8;
+
+      // Qui usiamo la nostra nuova funzionalità di concretizzazione
+      if (memoryConcretization.hasConcretization(addr)) {
+        uint64_t concreteValue = memoryConcretization.getConcretization(addr);
+        APInt value(byteSize * 8, concreteValue);
+        Constant* newVal = ConstantInt::get(loadType, value);
+        printvalue(newVal);
+        return newVal;
+      }
+    }
 
     Value* solvedLoad = GEPStoreTracker::solveLoad(retval);
     if (solvedLoad) {
       return solvedLoad;
     }
 
-    pointer = simplifyValue(
-        pointer,
-        builder.GetInsertBlock()->getParent()->getParent()->getDataLayout());
+    pointer = simplifyValue(pointer, builder.GetInsertBlock()->getParent()->getParent()->getDataLayout());
 
     printvalue(retval);
 
