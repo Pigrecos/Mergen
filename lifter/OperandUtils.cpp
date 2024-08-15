@@ -503,8 +503,7 @@ Value* createSelectFolder(IRBuilder<>& builder, Value* C, Value* True,
   return simplifyValue(builder.CreateSelect(C, True, False, Name), DL);
 }
 
-Value* createAddFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
-                       const Twine& Name) {
+Value* createAddFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,  const Twine& Name) {
 #ifdef TESTFOLDER3
 
   if (ConstantInt* LHSConst = dyn_cast<ConstantInt>(LHS)) {
@@ -517,11 +516,9 @@ Value* createAddFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   }
 #endif
 
-  auto addret =
-      createInstruction(builder, Instruction::Add, LHS, RHS, nullptr, Name);
+  auto addret = createInstruction(builder, Instruction::Add, LHS, RHS, nullptr, Name);
 
-  auto SQ = GetSimplifyQuery::createSimplifyQuery(
-      builder.GetInsertBlock()->getParent(), dyn_cast<Instruction>(addret));
+  auto SQ = GetSimplifyQuery::createSimplifyQuery(builder.GetInsertBlock()->getParent(), dyn_cast<Instruction>(addret));
 
   KnownBits LHSKB(64);
   getKnownBitsFromContext(LHS, LHSKB, SQ);
@@ -531,13 +528,11 @@ Value* createAddFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
 
   auto tryCompute = KnownBits::computeForAddSub(1, 0, LHSKB, RHSKB);
   if (tryCompute.isConstant() && !tryCompute.hasConflict())
-    return builder.getIntN(LHS->getType()->getIntegerBitWidth(),
-                           tryCompute.getConstant().getZExtValue());
+    return builder.getIntN(LHS->getType()->getIntegerBitWidth(), tryCompute.getConstant().getZExtValue());
   return addret;
 }
 
-Value* createSubFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
-                       const Twine& Name) {
+Value* createSubFolder(IRBuilder<>& builder, Value* LHS, Value* RHS, const Twine& Name) {
 #ifdef TESTFOLDER4
   if (ConstantInt* RHSConst = dyn_cast<ConstantInt>(RHS)) {
     if (RHSConst->isZero())
@@ -545,11 +540,10 @@ Value* createSubFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   }
 #endif
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
+    
   // sub x, y => add x, -y
-  auto subret = createInstruction(builder, Instruction::Add, LHS,
-                                  builder.CreateNeg(RHS), nullptr, Name);
-  auto SQ = GetSimplifyQuery::createSimplifyQuery(
-      builder.GetInsertBlock()->getParent(), dyn_cast<Instruction>(subret));
+  auto subret = createInstruction(builder, Instruction::Add, LHS,  builder.CreateNeg(RHS), nullptr, Name);
+  auto SQ = GetSimplifyQuery::createSimplifyQuery(builder.GetInsertBlock()->getParent(), dyn_cast<Instruction>(subret));
 
   KnownBits LHSKB(64);
   getKnownBitsFromContext(LHS, LHSKB, SQ);
@@ -559,8 +553,7 @@ Value* createSubFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
 
   auto tryCompute = KnownBits::computeForAddSub(0, 0, LHSKB, RHSKB);
   if (tryCompute.isConstant() && !tryCompute.hasConflict())
-    return builder.getIntN(LHS->getType()->getIntegerBitWidth(),
-                           tryCompute.getConstant().getZExtValue());
+    return builder.getIntN(LHS->getType()->getIntegerBitWidth(), tryCompute.getConstant().getZExtValue());
 
   return subret;
 }
@@ -615,53 +608,46 @@ Value* foldShlKnownBits(LLVMContext& context, KnownBits LHS, KnownBits RHS) {
                           result.getConstant());
 }
 
-Value* createShlFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
-                       const Twine& Name) {
+Value* createShlFolder(IRBuilder<>& builder, Value* LHS, Value* RHS, const Twine& Name) {
 
   if (ConstantInt* RHSConst = dyn_cast<ConstantInt>(RHS)) {
     if (ConstantInt* LHSConst = dyn_cast<ConstantInt>(LHS))
-      return ConstantInt::get(RHS->getType(), LHSConst->getZExtValue()
-                                                  << RHSConst->getZExtValue());
+      return ConstantInt::get(RHS->getType(), LHSConst->getZExtValue() << RHSConst->getZExtValue());
     if (RHSConst->isZero())
       return LHS;
   }
-  auto result =
-      createInstruction(builder, Instruction::Shl, LHS, RHS, nullptr, Name);
+
+  auto result = createInstruction(builder, Instruction::Shl, LHS, RHS, nullptr, Name);
 
   if (auto ctxI = dyn_cast<Instruction>(result)) {
     KnownBits KnownLHS = analyzeValueKnownBits(LHS, ctxI);
     KnownBits KnownRHS = analyzeValueKnownBits(RHS, ctxI);
 
-    if (Value* knownBitsShl =
-            foldShlKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
+    if (Value* knownBitsShl =  foldShlKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
       return knownBitsShl;
     }
   }
   return result;
 }
 
-Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
-                        const Twine& Name) {
+Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS, const Twine& Name) {
 
 #ifdef TESTFOLDERshr
 
   if (ConstantInt* RHSConst = dyn_cast<ConstantInt>(RHS)) {
     if (ConstantInt* LHSConst = dyn_cast<ConstantInt>(LHS))
-      return ConstantInt::get(RHS->getType(), LHSConst->getZExtValue() >>
-                                                  RHSConst->getZExtValue());
+      return ConstantInt::get(RHS->getType(), LHSConst->getZExtValue() >> RHSConst->getZExtValue());
     if (RHSConst->isZero())
       return LHS;
   }
 
-  auto result =
-      createInstruction(builder, Instruction::LShr, LHS, RHS, nullptr, Name);
+  auto result = createInstruction(builder, Instruction::LShr, LHS, RHS, nullptr, Name);
   if (auto ctxI = dyn_cast<Instruction>(result)) {
     KnownBits KnownLHS = analyzeValueKnownBits(LHS, ctxI);
     KnownBits KnownRHS = analyzeValueKnownBits(RHS, ctxI);
     printvalue2(KnownLHS);
     printvalue2(KnownRHS);
-    if (Value* knownBitsLshr =
-            foldLShrKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
+    if (Value* knownBitsLshr = foldLShrKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
       // printvalue(knownBitsLshr)
       return knownBitsLshr;
     }
@@ -675,27 +661,19 @@ Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   return result;
 }
 
-Value* createShlFolder(IRBuilder<>& builder, Value* LHS, uint64_t RHS,
-                       const Twine& Name) {
-  return createShlFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS),
-                         Name);
+Value* createShlFolder(IRBuilder<>& builder, Value* LHS, uint64_t RHS, const Twine& Name) {
+  return createShlFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS), Name);
 }
 
-Value* createShlFolder(IRBuilder<>& builder, Value* LHS, APInt RHS,
-                       const Twine& Name) {
-  return createShlFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS),
-                         Name);
+Value* createShlFolder(IRBuilder<>& builder, Value* LHS, APInt RHS, const Twine& Name) {
+  return createShlFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS), Name);
 }
 
-Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, uint64_t RHS,
-                        const Twine& Name) {
-  return createLShrFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS),
-                          Name);
+Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, uint64_t RHS, const Twine& Name) {
+  return createLShrFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS), Name);
 }
-Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, APInt RHS,
-                        const Twine& Name) {
-  return createLShrFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS),
-                          Name);
+Value* createLShrFolder(IRBuilder<>& builder, Value* LHS, APInt RHS, const Twine& Name) {
+  return createLShrFolder(builder, LHS, ConstantInt::get(LHS->getType(), RHS), Name);
 }
 
 Value* foldOrKnownBits(LLVMContext& context, KnownBits LHS, KnownBits RHS) {
@@ -720,14 +698,12 @@ Value* foldOrKnownBits(LLVMContext& context, KnownBits LHS, KnownBits RHS) {
                           resultValue);
 }
 
-Value* createOrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
-                      const Twine& Name) {
+Value* createOrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS, const Twine& Name) {
 #ifdef TESTFOLDER5
 
   if (ConstantInt* LHSConst = dyn_cast<ConstantInt>(LHS)) {
     if (ConstantInt* RHSConst = dyn_cast<ConstantInt>(RHS))
-      return ConstantInt::get(RHS->getType(), RHSConst->getZExtValue() |
-                                                  LHSConst->getZExtValue());
+      return ConstantInt::get(RHS->getType(), RHSConst->getZExtValue() | LHSConst->getZExtValue());
     if (LHSConst->isZero())
       return RHS;
   }
@@ -736,18 +712,15 @@ Value* createOrFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
       return LHS;
   }
 
-  auto result =
-      createInstruction(builder, Instruction::Or, LHS, RHS, nullptr, Name);
+  auto result = createInstruction(builder, Instruction::Or, LHS, RHS, nullptr, Name);
   if (auto ctxI = dyn_cast<Instruction>(result)) {
     KnownBits KnownLHS = analyzeValueKnownBits(LHS, ctxI);
     KnownBits KnownRHS = analyzeValueKnownBits(RHS, ctxI);
     printvalue2(KnownLHS) printvalue2(KnownRHS);
-    if (Value* knownBitsAnd =
-            foldOrKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
+    if (Value* knownBitsAnd = foldOrKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
       return knownBitsAnd;
     }
-    if (Value* knownBitsAnd =
-            foldOrKnownBits(builder.getContext(), KnownRHS, KnownLHS)) {
+    if (Value* knownBitsAnd = foldOrKnownBits(builder.getContext(), KnownRHS, KnownLHS)) {
       return knownBitsAnd;
     }
   }
@@ -796,8 +769,8 @@ Value* createXorFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   }
 
 #endif
-  auto result =
-      createInstruction(builder, Instruction::Xor, LHS, RHS, nullptr, Name);
+
+  auto result = createInstruction(builder, Instruction::Xor, LHS, RHS, nullptr, Name);
   if (auto ctxI = dyn_cast<Instruction>(result)) {
     KnownBits KnownLHS = analyzeValueKnownBits(LHS, ctxI);
     KnownBits KnownRHS = analyzeValueKnownBits(RHS, ctxI);
@@ -811,8 +784,7 @@ Value* createXorFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
   return result;
 }
 
-std::optional<bool> foldKnownBits(CmpInst::Predicate P, KnownBits LHS,
-                                  KnownBits RHS) {
+std::optional<bool> foldKnownBits(CmpInst::Predicate P, KnownBits LHS, KnownBits RHS) {
 
   switch (P) {
   case CmpInst::ICMP_EQ:
@@ -842,8 +814,7 @@ std::optional<bool> foldKnownBits(CmpInst::Predicate P, KnownBits LHS,
   return nullopt;
 }
 
-Value* ICMPPatternMatcher(IRBuilder<>& builder, CmpInst::Predicate P,
-                          Value* LHS, Value* RHS, const Twine& Name) {
+Value* ICMPPatternMatcher(IRBuilder<>& builder, CmpInst::Predicate P, Value* LHS, Value* RHS, const Twine& Name) {
   switch (P) {
   case CmpInst::ICMP_UGT: {
     // Check if LHS is the result of a call to @llvm.ctpop.i64
@@ -894,9 +865,19 @@ Value* ICMPPatternMatcher(IRBuilder<>& builder, CmpInst::Predicate P,
   return nullptr;
 }
 
-Value* createICMPFolder(IRBuilder<>& builder, CmpInst::Predicate P, Value* LHS,
-                        Value* RHS, const Twine& Name) {
+Value* createICMPFolder(IRBuilder<>& builder, CmpInst::Predicate P, Value* LHS, Value* RHS, const Twine& Name) {
 
+  // Assicurati che LHS e RHS abbiano lo stesso tipo
+  Type* LHSTy = LHS->getType();
+  Type* RHSTy = RHS->getType();
+  if (LHSTy != RHSTy) {
+    // Scegli il tipo più grande
+    Type* DestTy = LHSTy->getIntegerBitWidth() > RHSTy->getIntegerBitWidth()
+                       ? LHSTy
+                       : RHSTy;
+    LHS = createZExtOrTruncFolder(builder, LHS, DestTy, "lhs_ext");
+    RHS = createZExtOrTruncFolder(builder, RHS, DestTy, "rhs_ext");
+  }
   auto result = builder.CreateICmp(P, LHS, RHS, Name);
 
   if (auto ctxI = dyn_cast<Instruction>(result)) {
@@ -936,13 +917,11 @@ Value* foldAndKnownBits(LLVMContext& context, KnownBits LHS, KnownBits RHS) {
                           resultValue);
 }
 
-Value* createAndFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
-                       const Twine& Name) {
+Value* createAndFolder(IRBuilder<>& builder, Value* LHS, Value* RHS, const Twine& Name) {
 #ifdef TESTFOLDER
   if (ConstantInt* LHSConst = dyn_cast<ConstantInt>(LHS)) {
     if (ConstantInt* RHSConst = dyn_cast<ConstantInt>(RHS))
-      return ConstantInt::get(RHS->getType(), RHSConst->getZExtValue() &
-                                                  LHSConst->getZExtValue());
+      return ConstantInt::get(RHS->getType(), RHSConst->getZExtValue() & LHSConst->getZExtValue());
     if (LHSConst->isZero())
       return ConstantInt::get(RHS->getType(), 0);
   }
@@ -958,20 +937,30 @@ Value* createAndFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
     if (RHSConst->isMinusOne())
       return LHS;
   }
-  auto result =
-      createInstruction(builder, Instruction::And, LHS, RHS, nullptr, Name);
+
+  // Assicurati che LHS e RHS abbiano lo stesso tipo
+  Type* LHSTy = LHS->getType();
+  Type* RHSTy = RHS->getType();
+  if (LHSTy != RHSTy) {
+    // Scegli il tipo più grande
+    Type* DestTy = LHSTy->getIntegerBitWidth() > RHSTy->getIntegerBitWidth()
+                       ? LHSTy
+                       : RHSTy;
+    LHS = createZExtOrTruncFolder(builder, LHS, DestTy, "lhs_ext");
+    RHS = createZExtOrTruncFolder(builder, RHS, DestTy, "rhs_ext");
+  }
+
+  auto result =  createInstruction(builder, Instruction::And, LHS, RHS, nullptr, Name);
   if (auto ctxI = dyn_cast<Instruction>(result)) {
     DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
     KnownBits KnownLHS = analyzeValueKnownBits(LHS, ctxI);
     KnownBits KnownRHS = analyzeValueKnownBits(RHS, ctxI);
 
-    if (Value* knownBitsAnd =
-            foldAndKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
+    if (Value* knownBitsAnd = foldAndKnownBits(builder.getContext(), KnownLHS, KnownRHS)) {
       printvalue(knownBitsAnd);
       return knownBitsAnd;
     }
-    if (Value* knownBitsAnd =
-            foldAndKnownBits(builder.getContext(), KnownRHS, KnownLHS)) {
+    if (Value* knownBitsAnd = foldAndKnownBits(builder.getContext(), KnownRHS, KnownLHS)) {
       printvalue(knownBitsAnd);
       return knownBitsAnd;
     }
@@ -986,8 +975,7 @@ Value* createAndFolder(IRBuilder<>& builder, Value* LHS, Value* RHS,
 }
 
 // - probably not needed anymore
-Value* createTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
-                         const Twine& Name) {
+Value* createTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy, const Twine& Name) {
   Value* result = builder.CreateTrunc(V, DestTy, Name);
 
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
@@ -1009,8 +997,7 @@ Value* createTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
   return simplifyValue(result, DL);
 }
 
-Value* createZExtFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
-                        const Twine& Name) {
+Value* createZExtFolder(IRBuilder<>& builder, Value* V, Type* DestTy, const Twine& Name) {
   auto result = builder.CreateZExt(V, DestTy, Name);
   DataLayout DL(builder.GetInsertBlock()->getParent()->getParent());
 #ifdef TESTFOLDER8
@@ -1024,18 +1011,22 @@ Value* createZExtFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
   return simplifyValue(result, DL);
 }
 
-Value* createZExtOrTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
-                               const Twine& Name) {
+Value* createZExtOrTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy, const Twine& Name) {
   Type* VTy = V->getType();
-  if (VTy->getScalarSizeInBits() < DestTy->getScalarSizeInBits())
-    return createZExtFolder(builder, V, DestTy, Name);
-  if (VTy->getScalarSizeInBits() > DestTy->getScalarSizeInBits())
-    return createTruncFolder(builder, V, DestTy, Name);
+  if (VTy->getScalarSizeInBits() < DestTy->getScalarSizeInBits()) {
+    auto newValue = createZExtFolder(builder, V, DestTy, Name);
+    printvalue(newValue);
+    return newValue;
+  }
+  if (VTy->getScalarSizeInBits() > DestTy->getScalarSizeInBits()) {
+    auto newValue = createTruncFolder(builder, V, DestTy, Name);
+    printvalue(newValue);
+    return newValue;
+  }
   return V;
 }
 
-Value* createSExtFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
-                        const Twine& Name) {
+Value* createSExtFolder(IRBuilder<>& builder, Value* V, Type* DestTy, const Twine& Name) {
 #ifdef TESTFOLDER9
 
   if (V->getType() == DestTy) {
@@ -1064,8 +1055,7 @@ Value* createSExtFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
   return builder.CreateSExt(V, DestTy, Name);
 }
 
-Value* createSExtOrTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy,
-                               const Twine& Name) {
+Value* createSExtOrTruncFolder(IRBuilder<>& builder, Value* V, Type* DestTy, const Twine& Name) {
   Type* VTy = V->getType();
   if (VTy->getScalarSizeInBits() < DestTy->getScalarSizeInBits())
     return createSExtFolder(builder, V, DestTy, Name);

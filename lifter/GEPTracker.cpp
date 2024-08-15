@@ -303,6 +303,9 @@ namespace GEPStoreTracker {
     if (it == pageMap.begin())
       return false;
     --it;
+    auto ret = address >= it->first&& address < it->second;
+    if (!ret)
+      return false;
     return address >= it->first && address < it->second;
   }
 
@@ -515,21 +518,35 @@ namespace GEPStoreTracker {
       auto loadOffsetCIval = loadOffsetCI->getZExtValue();
 
       IRBuilder<> builder(load);
-      auto valueExtractedFromVirtualStack = VirtualStack.retrieveCombinedValue(
-          builder, loadOffsetCIval, cloadsize, load);
+      auto valueExtractedFromVirtualStack = VirtualStack.retrieveCombinedValue(builder, loadOffsetCIval, cloadsize, load);
       if (valueExtractedFromVirtualStack) {
         return valueExtractedFromVirtualStack;
       }
     } else {
       // get possible values from loadOffset
       printvalueforce(loadOffset);
-      auto add = cast<Instruction>(loadOffset);
+      //auto add = cast<Instruction>(loadOffset);
       auto idk = analyzeValueKnownBits(loadOffset, load);
-      auto firstOp = add->getOperand(0);
-      auto secondOp = add->getOperand(1);
-      printvalueforce2(analyzeValueKnownBits(firstOp, load));
-      printvalueforce2(analyzeValueKnownBits(secondOp, load));
       printvalueforce2(idk);
+
+      // Se loadOffset è un'istruzione, analizza i suoi operandi
+      if (auto* inst = dyn_cast<Instruction>(loadOffset)) {
+        for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
+          auto op = inst->getOperand(i);
+          printvalueforce2(analyzeValueKnownBits(op, load));
+        }
+      } else {
+        // Se non è un'istruzione, potrebbe essere un argomento della funzione o
+        // una costante
+        printvalueforce2(analyzeValueKnownBits(loadOffset, load));
+      }
+      /*auto firstOp = add->getOperand(0);
+      printvalue(firstOp);
+      auto secondOp = add->getOperand(1);
+      printvalue(secondOp);
+      printvalueforce2(analyzeValueKnownBits(firstOp, load));
+      printvalueforce2(analyzeValueKnownBits(secondOp, load)); 
+      printvalueforce2(idk);*/
     }
 
     // create a new vector with only leave what we care about

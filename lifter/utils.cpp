@@ -49,16 +49,11 @@ namespace FileHelper {
     auto sectionHeader = ntHeaders->get_sections();
     for (int i = 0; i < ntHeaders->file_header.num_sections;
          i++, sectionHeader++) {
-      if (rva >= sectionHeader->virtual_address &&
-          rva <
-              (sectionHeader->virtual_address + sectionHeader->virtual_size)) {
-        if (sectionHeader->characteristics.mem_execute ||
-            (sectionHeader->characteristics.mem_read &&
-             !sectionHeader->characteristics.mem_write)) // remove?
-          return rva - sectionHeader->virtual_address +
-                 sectionHeader->ptr_raw_data;
-        else
-          return 0;
+      if (rva >= sectionHeader->virtual_address && rva < (sectionHeader->virtual_address + sectionHeader->virtual_size)) {
+        //if (sectionHeader->characteristics.mem_execute || (sectionHeader->characteristics.mem_read && !sectionHeader->characteristics.mem_write)) // remove?
+          return rva - sectionHeader->virtual_address + sectionHeader->ptr_raw_data;
+        //else
+        //  return 0;
       }
     }
     return 0;

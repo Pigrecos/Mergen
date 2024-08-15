@@ -731,6 +731,20 @@ void lifterClass::lift_cmovnp() {
   SetOperandValue(dest, result);
 }
 
+// SSE2
+void lifterClass::lift_movdqu() {
+  auto dest = instruction->operands[0];
+  auto src = instruction->operands[1];
+
+  // Ottieni il valore sorgente
+  auto Rvalue = GetOperandValue(src, 128); // 128 bit = 16 byte
+
+  // Imposta il valore di destinazione
+  SetOperandValue(dest, Rvalue, "movdqu" + to_string(instruction->runtime_address));
+
+  printvalue(Rvalue);
+}
+
 // for now assume every call is fake
 void lifterClass::lift_call() {
   LLVMContext& context = builder.getContext();
@@ -926,16 +940,12 @@ void lifterClass::lift_jmp() {
 
   auto Value = GetOperandValue(dest, 64);
   auto ripval = GetRegisterValue(ZYDIS_REGISTER_RIP);
-  auto newRip = createAddFolder(
-      builder, Value, ripval,
-      "jump-xd-" + to_string(instruction->runtime_address) + "-");
+  auto newRip = createAddFolder(builder, Value, ripval, "jump-xd-" + to_string(instruction->runtime_address) + "-");
 
   jmpcount++;
-  if (dest.type == ZYDIS_OPERAND_TYPE_REGISTER ||
-      dest.type == ZYDIS_OPERAND_TYPE_MEMORY) {
+  if (dest.type == ZYDIS_OPERAND_TYPE_REGISTER || dest.type == ZYDIS_OPERAND_TYPE_MEMORY) {
     auto rspvalue = GetOperandValue(dest, 64);
-    auto trunc = createZExtOrTruncFolder(
-        builder, rspvalue, Type::getInt64Ty(context), "jmp-register");
+    auto trunc = createZExtOrTruncFolder(builder, rspvalue, Type::getInt64Ty(context), "jmp-register");
 
     auto block = builder.GetInsertBlock();
     block->setName("jmp_check" + to_string(ret_count));
@@ -961,14 +971,17 @@ void lifterClass::lift_jmp() {
 
       lastinst->eraseFromParent();
       string block_name = "jmp-" + to_string(destination) + "-";
-      auto bb = BasicBlock::Create(context, block_name.c_str(),
-                                   builder.GetInsertBlock()->getParent());
+      auto bb = BasicBlock::Create(context, block_name.c_str(), builder.GetInsertBlock()->getParent());
 
       builder.CreateBr(bb);
 
       blockInfo = (make_tuple(destination, bb, getRegisters()));
       run = 0;
+    } else {
+       cout << "pathInfo:" << pathInfo << " dest: " << destination  <<
+       "\n";
     }
+
     run = 0;
 
     // if ROP is not JOP_jmp, then its bugged
@@ -977,12 +990,10 @@ void lifterClass::lift_jmp() {
 
   SetRegisterValue(ZYDIS_REGISTER_RIP, newRip);
 
-  uint64_t test = dest.imm.value.s + instruction->runtime_address +
-                  instruction->info.length;
+  uint64_t test = dest.imm.value.s + instruction->runtime_address + instruction->info.length;
 
   string block_name = "jmp-" + to_string(test) + "-";
-  auto bb = BasicBlock::Create(context, block_name.c_str(),
-                               builder.GetInsertBlock()->getParent());
+  auto bb = BasicBlock::Create(context, block_name.c_str(), builder.GetInsertBlock()->getParent());
 
   builder.CreateBr(bb);
 
@@ -2082,47 +2093,47 @@ void lifterClass::lift_add_sub() {
   auto dest = instruction->operands[0];
   auto src = instruction->operands[1];
 
-  auto Rvalue = GetOperandValue(src, dest.size);
-  auto Lvalue = GetOperandValue(dest, dest.size);
+  //auto Rvalue = GetOperandValue(src, dest.size);
+  //auto Lvalue = GetOperandValue(dest, dest.size);
+
+  // Determina la dimensione corretta basata sull'operando di destinazione
+  unsigned opSize = dest.size;
+  Type* opType = Type::getIntNTy(builder.getContext(), opSize);
+  // Ottieni i valori degli operandi con la dimensione corretta
+  auto Lvalue = createZExtOrTruncFolder(builder, GetOperandValue(dest, dest.size), opType, "lvalue");
+  auto Rvalue = createZExtOrTruncFolder(builder, GetOperandValue(src, dest.size), opType, "rvalue");
+
 
   Value* result = nullptr;
   Value* cf = nullptr;
   Value* af = nullptr;
   Value* of = nullptr;
 
-  auto lowerNibbleMask = ConstantInt::get(Lvalue->getType(), 0xF);
-  auto RvalueLowerNibble =
-      createAndFolder(builder, Lvalue, lowerNibbleMask, "lvalLowerNibble");
-  auto op2LowerNibble =
-      createAndFolder(builder, Rvalue, lowerNibbleMask, "rvalLowerNibble");
+  auto lowerNibbleMask   = ConstantInt::get(Lvalue->getType(), 0xF);
+  auto RvalueLowerNibble = createAndFolder(builder, Lvalue, lowerNibbleMask, "lvalLowerNibble");
+  auto op2LowerNibble    = createAndFolder(builder, Rvalue, lowerNibbleMask, "rvalLowerNibble");
 
   switch (instruction->info.mnemonic) {
   case ZYDIS_MNEMONIC_ADD: {
-    result = createAddFolder(builder, Lvalue, Rvalue,
-                             "realadd-" +
-                                 to_string(instruction->runtime_address) + "-");
-    cf = createOrFolder(
-        builder,
-        createICMPFolder(builder, CmpInst::ICMP_ULT, result, Lvalue, "add_cf1"),
-        createICMPFolder(builder, CmpInst::ICMP_ULT, result, Rvalue, "add_cf2"),
-        "add_cf");
-    auto sumLowerNibble = createAddFolder(builder, RvalueLowerNibble,
-                                          op2LowerNibble, "add_sumLowerNibble");
-    af = createICMPFolder(builder, CmpInst::ICMP_UGT, sumLowerNibble,
-                          lowerNibbleMask, "add_af");
+    result = createAddFolder(builder, Lvalue, Rvalue, "realadd-" + to_string(instruction->runtime_address) + "-");
+
+    cf = createOrFolder(builder, createICMPFolder(builder, CmpInst::ICMP_ULT, result, Lvalue, "add_cf1"),
+                                 createICMPFolder(builder, CmpInst::ICMP_ULT, result, Rvalue, "add_cf2"),
+                                 "add_cf");
+
+    auto sumLowerNibble = createAddFolder(builder, RvalueLowerNibble, op2LowerNibble, "add_sumLowerNibble");
+
+    af = createICMPFolder(builder, CmpInst::ICMP_UGT, sumLowerNibble, lowerNibbleMask, "add_af");
     of = computeOverflowFlagAdd(builder, Lvalue, Rvalue, result);
     break;
   }
   case ZYDIS_MNEMONIC_SUB: {
-    result = createSubFolder(builder, Lvalue, Rvalue,
-                             "realsub-" +
-                                 to_string(instruction->runtime_address) + "-");
+    result = createSubFolder(builder, Lvalue, Rvalue, "realsub-" + to_string(instruction->runtime_address) + "-");
 
     of = computeOverflowFlagSub(builder, Lvalue, Rvalue, result);
 
     cf = createICMPFolder(builder, CmpInst::ICMP_UGT, Rvalue, Lvalue, "add_cf");
-    af = createICMPFolder(builder, CmpInst::ICMP_ULT, RvalueLowerNibble,
-                          op2LowerNibble, "add_af");
+    af = createICMPFolder(builder, CmpInst::ICMP_ULT, RvalueLowerNibble, op2LowerNibble, "add_af");
     break;
   }
   default:
@@ -3979,8 +3990,12 @@ void lifterClass::liftInstructionSemantics() {
     lift_cmovnp();
     break;
   }
-    // branches
-
+  // SSE2
+  case ZYDIS_MNEMONIC_MOVDQU: {
+    lift_movdqu();
+    break;
+  }
+  // branches
   case ZYDIS_MNEMONIC_RET: {
     lift_ret();
     break;

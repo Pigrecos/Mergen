@@ -124,6 +124,12 @@ void asm_to_zydis_to_lift(ZyanU8* data, ZyanU64 runtime_address,  ZyanU64 file_b
 
       offset += instruction.info.length;
       runtime_address += instruction.info.length;
+
+      if (runtime_address == 0x151D6AB00)
+        runtime_address = runtime_address;
+
+      if (runtime_address == 0x15531E7F6) // 0x15531E7F6: xor rax, qword ptr [r8]
+        runtime_address = runtime_address;
     }
   }
 }
@@ -174,6 +180,10 @@ void InitFunction_and_LiftInstructions(ZyanU64 runtime_address, uint64_t file_ba
   main->memoryConcretization.addConcretization(5493503224, 0);
   main->memoryConcretization.addConcretization(88, 17937920);
   main->memoryConcretization.addConcretization(17937920, 5832560720);
+  // teb alloc
+  GEPStoreTracker::markMemPaged(17937920, 17937920 + 0x1838);
+  //Kuser_shared_Data
+  GEPStoreTracker::markMemPaged(0x000000007ffe000, 0x000000007ffe0000 + 0x1000);
 
   // blockAddresses->push_back(make_tuple(runtime_address, bb, RegisterList));
   lifters.push_back(main);

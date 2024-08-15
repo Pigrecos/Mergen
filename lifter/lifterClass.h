@@ -102,6 +102,7 @@ public:
   DEFINE_FUNCTION(cmovno);
   DEFINE_FUNCTION(cmovp);
   DEFINE_FUNCTION(cmovnp);
+  DEFINE_FUNCTION(movdqu);
   //
   DEFINE_FUNCTION(call);
   DEFINE_FUNCTION(ret);
