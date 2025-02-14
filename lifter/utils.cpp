@@ -74,6 +74,8 @@ int floatBitsToInt(float f) {
 */
 
 namespace debugging {
+  DebugCallback g_dbgCallback = nullptr;
+
   int ic = 1;
   int increaseInstCounter() { return ++ic; }
   bool shouldDebug = false;
@@ -100,29 +102,58 @@ namespace debugging {
   }
 
   void printLLVMValue(llvm::Value* v, const char* name) {
+    // Costruisci il messaggio completo in una stringa
+    std::string msg;
+    llvm::raw_string_ostream rso(msg);
+    rso << " " << name << " : ";
+    v->print(rso);
+    rso << "\n";
+    rso.flush();
+
+    // Se la callback è impostata, invia l'intero messaggio
+    if (g_dbgCallback) {
+      g_dbgCallback(msg.c_str());
+      return;
+    }
+
+    // Se invece vuoi anche scrivere su debugStream (per esempio su file o su console)
     if (!shouldDebug || !debugStream)
       return;
-    *debugStream << " " << name << " : ";
-    v->print(*debugStream);
-    *debugStream << "\n";
+    *debugStream << msg;
     debugStream->flush();
   }
 
   // Other functions remain the same, but use debugStream instead of
   // llvm::outs() For example:
   template <typename T> void printValue(const T& v, const char* name) {
+    std::string msg;
+    llvm::raw_string_ostream rso(msg);
+    rso << " " << name << " : ";
+    if constexpr (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>)
+      rso << static_cast<int>(v);
+    else
+      rso << v;
+    rso << "\n";
+    rso.flush();
+
+    if (g_dbgCallback) {    
+      g_dbgCallback(msg.c_str());
+      return;
+    }
+
     if (!shouldDebug || !debugStream)
       return;
-    if constexpr (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>) {
-      *debugStream << " " << name << " : " << static_cast<int>(v) << "\n";
-      debugStream->flush();
-      return;
-    } else
-      *debugStream << " " << name << " : " << v << "\n";
+    *debugStream << msg;
     debugStream->flush();
   }
 
   void doIfDebug(const std::function<void(void)>& dothis) {
+    // Forza il debug se la callback è impostata
+    if (g_dbgCallback) {
+      (dothis)();
+      return;
+    }
+
     if (!shouldDebug)
       return;
     (dothis)();
@@ -160,7 +191,7 @@ namespace argparser {
   }
 
   std::map<std::string, std::function<void()>> options = {
-      {"-d", []() { debugging::enableDebug("debug.txt"); }},
+      {"-d", []() { debugging::enableDebug(""/*"debug.txt"*/); }},
       //
       {"-h", printHelp}};
 

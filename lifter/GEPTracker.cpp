@@ -19,11 +19,18 @@
 #include <llvm/TargetParser/Triple.h>
 #include <llvm/Transforms/Utils/SCCPSolver.h>
 
+// Macro per allineare verso il basso: ad esempio, ALIGN_DOWN(0x1003, 0x200)
+// restituisce 0x1000.
+#define ALIGN_DOWN(x, align) ((x) & ~((align) - 1))
+
+
 namespace BinaryOperations {
 
   // wtf man
   ZyanU8* data_g;
   arch_mode is64Bit;
+  // Variabile globale per la callback:
+  MemoryMappingCallback gMemoryMappingCallback = nullptr;
 
   void initBases(ZyanU8* data, arch_mode is64) {
     data_g = data;
@@ -41,19 +48,16 @@ namespace BinaryOperations {
   }
 
   bool isImport(uint64_t addr) {
-    auto dosHeader = reinterpret_cast<const win::dos_header_t*>(data_g);
-    auto ntHeadersBase =
-        reinterpret_cast<const uint8_t*>(data_g) + dosHeader->e_lfanew;
+    auto dosHeader     = reinterpret_cast<const win::dos_header_t*>(data_g);
+    auto ntHeadersBase = reinterpret_cast<const uint8_t*>(data_g) + dosHeader->e_lfanew;
 
     uint64_t imageBase;
     if (is64Bit == X64) {
-      auto ntHeaders =
-          reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase);
-      imageBase = ntHeaders->optional_header.image_base;
+      auto ntHeaders =  reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase);
+      imageBase      = ntHeaders->optional_header.image_base;
     } else {
-      auto ntHeaders =
-          reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase);
-      imageBase = ntHeaders->optional_header.image_base;
+      auto ntHeaders = reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase);
+      imageBase      = ntHeaders->optional_header.image_base;
     }
 
     APInt tmp;
@@ -90,50 +94,97 @@ namespace BinaryOperations {
   // we will be executing
   void writeMemory();
 
-  uint64_t RvaToFileOffset(const void* ntHeadersBase, uint32_t rva) {
-    const auto* sectionHeader =
-        is64Bit == X64
-            ? reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase)
-                  ->get_sections()
-            : reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase)
-                  ->get_sections();
+  uint64_t RvaToFileOffset1(const void* ntHeadersBase, uint32_t rva) {
+    const auto* sectionHeader = is64Bit == X64 ? reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase)->get_sections()
+                                               : reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase)->get_sections();
 
-    int numSections =
-        is64Bit == X64
-            ? reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase)
-                  ->file_header.num_sections
-            : reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase)
-                  ->file_header.num_sections;
+    int numSections = is64Bit == X64 ? reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase)->file_header.num_sections
+                                     : reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase)->file_header.num_sections;
 
     for (int i = 0; i < numSections; i++, sectionHeader++) {
-      if (rva >= sectionHeader->virtual_address &&
-          rva <
-              (sectionHeader->virtual_address + sectionHeader->virtual_size)) {
-        return rva - sectionHeader->virtual_address +
-               sectionHeader->ptr_raw_data;
+      if (rva >= sectionHeader->virtual_address && rva < (sectionHeader->virtual_address + sectionHeader->virtual_size)) {
+        return rva - sectionHeader->virtual_address + sectionHeader->ptr_raw_data;
       }
     }
     return 0;
   }
 
+
+  uint64_t RvaToFileOffset(const void* ntHeadersBase, uint32_t rva) {
+    uint32_t fileAlignment = 0;
+    uint32_t headersSize = 0;
+
+    // Recupera file alignment e size_of_headers in base all'architettura
+    if (is64Bit == X64) {
+      const auto* ntHeaders = reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase);
+      headersSize = ntHeaders->optional_header.size_headers;
+      if (ntHeaders->optional_header.file_alignment == ntHeaders->optional_header.section_alignment)
+        fileAlignment = 1;
+      else
+        fileAlignment = ntHeaders->optional_header.file_alignment;
+    } else {
+      const auto* ntHeaders = reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase);
+      headersSize = ntHeaders->optional_header.size_headers;
+      if (ntHeaders->optional_header.file_alignment == ntHeaders->optional_header.section_alignment)
+        fileAlignment = 1;
+      else
+        fileAlignment = ntHeaders->optional_header.file_alignment;
+    }
+
+    // Se l'RVA è all'interno degli header, restituisce l'RVA
+    if (rva < headersSize)
+      return rva;
+
+    // Recupera la sezione e il numero delle sezioni
+    const win::section_header_t* sectionHeader = nullptr;
+    int numSections = 0;
+    if (is64Bit == X64) {
+      const auto* ntHeaders = reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase);
+      sectionHeader = ntHeaders->get_sections();
+      numSections = ntHeaders->file_header.num_sections;
+    } else {
+      const auto* ntHeaders = reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase);
+      sectionHeader = ntHeaders->get_sections();
+      numSections = ntHeaders->file_header.num_sections;
+    }
+
+    // Itera sulle sezioni per trovare quella che contiene l'RVA
+    for (int i = 0; i < numSections; i++, sectionHeader++) {
+      // Si utilizza la SizeOfRawData come misura dell'area fisica sul file
+      if (rva >= sectionHeader->virtual_address && rva <= (sectionHeader->virtual_address + sectionHeader->size_raw_data)) {
+        // Allinea il pointer raw data in base al file alignment
+        uint32_t alignedRaw = (fileAlignment == 1) ? sectionHeader->ptr_raw_data : ALIGN_DOWN(sectionHeader->ptr_raw_data, fileAlignment);
+        return alignedRaw + (rva - sectionHeader->virtual_address);
+      }
+    }
+    // Se nessuna sezione corrisponde, restituisce 0 oppure un valore di errore
+    return 0;
+  }
+
   uint64_t address_to_mapped_address(uint64_t rva) {
-    auto dosHeader = reinterpret_cast<const win::dos_header_t*>(data_g);
-    auto ntHeadersBase =
-        reinterpret_cast<const uint8_t*>(data_g) + dosHeader->e_lfanew;
+    auto dosHeader     = reinterpret_cast<const win::dos_header_t*>(data_g);
+    auto ntHeadersBase = reinterpret_cast<const uint8_t*>(data_g) + dosHeader->e_lfanew;
 
     uint64_t imageBase;
     if (is64Bit == X64) {
-      auto ntHeaders =
-          reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase);
-      imageBase = ntHeaders->optional_header.image_base;
+      auto ntHeaders =  reinterpret_cast<const win::nt_headers_t<true>*>(ntHeadersBase);
+      imageBase      = ntHeaders->optional_header.image_base;
     } else {
-      auto ntHeaders =
-          reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase);
-      imageBase = ntHeaders->optional_header.image_base;
+      auto ntHeaders =  reinterpret_cast<const win::nt_headers_t<false>*>(ntHeadersBase);
+      imageBase      = ntHeaders->optional_header.image_base;
     }
 
     uint64_t address = rva - imageBase;
-    return RvaToFileOffset(ntHeadersBase, address);
+    uint64_t mappedAddr = RvaToFileOffset(ntHeadersBase, address);
+            
+    // Se il mapping standard non ha trovato un indirizzo valido (ad es. mappedAddr == 0 es.KUSD;TEB;PEB;Etc..) e la callback è impostata, chiamala per ottenere l'indirizzo mappato.
+    //
+    if (mappedAddr == 0 && gMemoryMappingCallback) {
+      auto newAddr = gMemoryMappingCallback(rva);
+      uint64_t newRVA = newAddr - imageBase;
+      mappedAddr = RvaToFileOffset(ntHeadersBase, newRVA);
+    }
+    return mappedAddr;
   }
 
   uint64_t fileOffsetToRVA(uint64_t offset) {
@@ -705,8 +756,8 @@ calculatePossibleValues(std::set<APInt, APIntComparator> v1,
   return res;
 }
 
-set<APInt, APIntComparator> lifterClass::computePossibleValues(Value* V,
-                                                               uint8_t Depth) {
+set<APInt, APIntComparator> lifterClass::computePossibleValues(Value* V, uint8_t Depth) {
+
   printvalue2(Depth);
   if (Depth > 16) {
     debugging::doIfDebug([&]() {
@@ -724,13 +775,13 @@ set<APInt, APIntComparator> lifterClass::computePossibleValues(Value* V,
     return res;
   }
   if (auto v_inst = dyn_cast<Instruction>(V)) {
-
+      
     if (v_inst->getNumOperands() == 1)
       return computePossibleValues(v_inst->getOperand(0), Depth + 1);
-
+    
     if (v_inst->getOpcode() == Instruction::Select) {
-      auto cond = v_inst->getOperand(0);
-      auto trueValue = v_inst->getOperand(1);
+      auto cond       = v_inst->getOperand(0);
+      auto trueValue  = v_inst->getOperand(1);
       auto falseValue = v_inst->getOperand(2);
 
       auto kb = analyzeValueKnownBits(cond, v_inst);
@@ -760,23 +811,17 @@ set<APInt, APIntComparator> lifterClass::computePossibleValues(Value* V,
     auto op1 = v_inst->getOperand(0);
     auto op2 = v_inst->getOperand(1);
     auto op1_knownbits = analyzeValueKnownBits(op1, v_inst);
-    unsigned int op1_unknownbits_count = llvm::popcount(
-        ~(op1_knownbits.One | op1_knownbits.Zero).getZExtValue());
-
     auto op2_knownbits = analyzeValueKnownBits(op2, v_inst);
-    unsigned int op2_unknownbits_count = llvm::popcount(
-        ~(op2_knownbits.One | op2_knownbits.Zero).getZExtValue());
+    auto v_knownbits   = analyzeValueKnownBits(v_inst, v_inst);
+
+    unsigned int op1_unknownbits_count = llvm::popcount(~(op1_knownbits.One | op1_knownbits.Zero).getZExtValue());
+    unsigned int op2_unknownbits_count = llvm::popcount(~(op2_knownbits.One | op2_knownbits.Zero).getZExtValue());
+    unsigned int res_unknownbits_count = llvm::popcount(~(v_knownbits.One | v_knownbits.Zero).getZExtValue()) - 64 + v_knownbits.getBitWidth();
+    auto total_unk = ~((op1_knownbits.One | op1_knownbits.Zero) & (op2_knownbits.One | op2_knownbits.Zero));
+    unsigned int total_unknownbits_count = llvm::popcount(total_unk.getZExtValue()) - 64 + total_unk.getBitWidth();
+
     printvalue2(analyzeValueKnownBits(V, v_inst));
-    auto v_knownbits = analyzeValueKnownBits(v_inst, v_inst);
-    unsigned int res_unknownbits_count =
-        llvm::popcount(~(v_knownbits.One | v_knownbits.Zero).getZExtValue()) -
-        64 + v_knownbits.getBitWidth();
-
-    auto total_unk = ~((op1_knownbits.One | op1_knownbits.Zero) &
-                       (op2_knownbits.One | op2_knownbits.Zero));
-
-    unsigned int total_unknownbits_count =
-        llvm::popcount(total_unk.getZExtValue()) - 64 + total_unk.getBitWidth();
+        
     printvalue2(v_knownbits);
     printvalue2(op1_knownbits);
     printvalue2(op2_knownbits);
@@ -785,8 +830,7 @@ set<APInt, APIntComparator> lifterClass::computePossibleValues(Value* V,
     printvalue2(op2_unknownbits_count);
     printvalue2(total_unknownbits_count);
 
-    if ((res_unknownbits_count >= total_unknownbits_count) &&
-        res_unknownbits_count != 1) {
+    if ((res_unknownbits_count >= total_unknownbits_count) && res_unknownbits_count != 1) {
       auto v1 = computePossibleValues(op1, Depth + 1);
       auto v2 = computePossibleValues(op2, Depth + 1);
 

@@ -6,6 +6,10 @@
 #include <linuxpe>
 
 // #define _NODEV why?
+// Add by Pigrecos(for testing)
+//
+// Definisce il tipo della callback:
+typedef void (*DebugCallback)(const char* strDbg);
 
 #ifndef UNREACHABLE
 #define UNREACHABLE(msg)                                                       \
@@ -48,6 +52,9 @@
   } while (0);
 
 namespace debugging {
+  // Variabile globale per la callback:
+  extern DebugCallback g_dbgCallback;
+
   int increaseInstCounter();
   void enableDebug();
   void printLLVMValue(llvm::Value* v, const char* name);

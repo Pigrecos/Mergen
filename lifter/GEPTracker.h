@@ -5,6 +5,11 @@
 #include <llvm/ADT/APInt.h>
 #include <llvm/IR/Value.h>
 
+// Add by Pigrecos(for testing)
+//
+// Definisce il tipo della callback:
+typedef uint64_t (*MemoryMappingCallback)(uint64_t originalVA);
+
 enum Assumption { Real, Assumed }; // add None
 
 enum arch_mode { X86 = 0, X64 = 1 };
@@ -55,6 +60,9 @@ public:
 
 namespace BinaryOperations {
 
+  // Variabile globale per la callback:
+  extern MemoryMappingCallback gMemoryMappingCallback;
+  
   const char* getName(const uint64_t offset);
 
   int getBitness();

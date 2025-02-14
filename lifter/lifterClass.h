@@ -156,10 +156,10 @@ struct BBInfo {
 class LazyValue {
 public:
   using ComputeFunc = std::function<llvm::Value*()>;
+  
+  ComputeFunc computeFunc;
 
   mutable std::optional<llvm::Value*> value;
-
-  ComputeFunc computeFunc;
 
   LazyValue() : value(nullptr) {}
   LazyValue(llvm::Value* val) : value(val) {}
@@ -194,8 +194,8 @@ public:
 
   bool run = 0;      // we may set 0 so to trigger jumping to next basic block
   bool finished = 0; // finished, unfinished, unreachable
-  bool isUnreachable = 0;
   uint32_t counter = 0;
+  bool isUnreachable = 0;
   // unique
 
   ZydisDecodedInstruction instruction;
@@ -268,7 +268,7 @@ public:
   llvm::Value* memory;
   llvm::Value* TEB;
   llvm::Function* fnc;
-
+  
   lifterClass(llvm::IRBuilder<>& irbuilder) : builder(irbuilder){};
 
   lifterClass(const lifterClass& other)
