@@ -1,0 +1,100 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 19,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "RelWithDebInfo",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "release",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "x86_64",
+            "hidden": true,
+            "architecture": {
+                "value": "x86_64",
+                "strategy": "external"
+            }
+        },
+        {
+          "name": "vcpkg-common",
+          "hidden": true,
+          "binaryDir": "${sourceDir}/build",
+          "generator": "Visual Studio 17 2022",
+          "toolset":"LLVM_v143",
+           "cacheVariables": {
+              "CMAKE_TOOLCHAIN_FILE":   "E:/cxx-common/Deps/scripts/buildsystems/vcpkg.cmake",
+              "CMAKE_MODULE_PATH":      "${sourceDir}/Scripts/scripts",
+              "CMAKE_PREFIX_PATH":      "E:/cxx-common/Deps/installed/x64-windows-static-md-rel/share",
+              "CMAKE_INSTALL_PREFIX":   "${sourceDir}/install",
+              "LLVM_DIR":               "E:/cxx-common/Deps/installed/x64-windows-static-md-rel/share/llvm",
+              "LIBRARY_REPOSITORY_ROOT":"E:/cxx-common",
+              "VCPKG_TARGET_TRIPLET":   "x64-windows-static-md-rel",
+              "remill_DIR":             "E:/cxx-common/remill/install/lib/cmake/remill",   
+              "sleigh_DIR":             "E:/cxx-common/remill/install/lib/cmake/sleigh",
+              "Z3_INCLUDE_DIRS":        "E:/cxx-common/Deps/installed/x64-windows-static-md-rel/include",
+              "Z3_LIBRARIES":           "E:/cxx-common/Deps/installed/x64-windows-static-md-rel/lib/libz3.lib"		  
+          }
+        },
+        {
+            "name": "vcpkg-RelWithDebInfo",
+            "hidden": true,
+            "inherits": ["RelWithDebInfo", "vcpkg-common"]
+        },
+        {
+            "name": "vcpkg-release",
+            "hidden": true,
+            "inherits": ["release", "vcpkg-common"]
+        },
+        {
+            "name": "vcpkg-x64-RelWithDebInfo",
+            "inherits": ["vcpkg-RelWithDebInfo", "x86_64"],
+            "displayName": "vcpkg-RelWithDebInfo (vcpkg) (x64)",
+            "description": "vcpkg-RelWithDebInfo version against a VCPKG installation. Define 'CMAKE_TOOLCHAIN_FILE', 'INSTALL_DIR', 'VCPKG_TARGET_TRIPLET' env vars!"
+        },
+        {
+            "name": "vcpkg-x64-rel",
+            "inherits": ["vcpkg-release", "x86_64"],
+            "displayName": "Release Build (vcpkg) (x64)",
+            "description": "Build a Release version against a VCPKG installation. Define 'CMAKE_TOOLCHAIN_FILE', 'INSTALL_DIR', 'VCPKG_TARGET_TRIPLET' env vars!"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "build-base-RelWithDebInfo",
+            "hidden": true,
+            "description": "Build in RelWithDebInfo mode",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "build-base-release",
+            "hidden": true,
+            "description": "Build in Release mode",
+            "configuration": "Release"
+        },
+        {
+            "name": "x64-RelWithDebInfo",
+            "configurePreset": "vcpkg-x64-RelWithDebInfo",
+            "displayName": "Build (RelWithDebInfo) (x64)",
+            "inherits": ["build-base-RelWithDebInfo"]
+        },
+        {
+            "name": "x64-rel",
+            "configurePreset": "vcpkg-x64-rel",
+            "displayName": "Build (release) (x64)",
+            "inherits": ["build-base-release"]
+        }
+    ]
+}
